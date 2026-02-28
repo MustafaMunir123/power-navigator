@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Navigator</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <h1>AI Navigator</h1>
+      <p class="tagline">Plan your route with AI</p>
+    </header>
+
+    <main class="main">
+      <section class="route-display" id="route-display">
+        <div class="route-map-wrap">
+          <div id="route-map" class="route-map" aria-hidden="true"></div>
+          <div id="route-placeholder" class="route-placeholder">Your route will appear here when you click Send.</div>
+        </div>
+      </section>
+      <section class="route-inputs">
+        <div class="input-group input-group-autocomplete">
+          <label for="from">From</label>
+          <div class="autocomplete-wrap">
+            <input type="text" id="from" name="from" placeholder="Starting point" autocomplete="off">
+            <div class="autocomplete-dropdown" id="from-dropdown" aria-hidden="true"></div>
+            <div class="autocomplete-error" id="from-error" aria-live="polite"></div>
+          </div>
+        </div>
+        <div class="input-group input-group-autocomplete">
+          <label for="to">To</label>
+          <div class="autocomplete-wrap">
+            <input type="text" id="to" name="to" placeholder="Destination" autocomplete="off">
+            <div class="autocomplete-dropdown" id="to-dropdown" aria-hidden="true"></div>
+            <div class="autocomplete-error" id="to-error" aria-live="polite"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="chat-section">
+        <div class="chatbox">
+          <div class="chat-messages" id="chat-messages">
+            <div class="message message-system">
+              Enter your start and destination above, then ask me anything about your route.
+            </div>
+          </div>
+          <div class="chat-input-row">
+            <input type="text" id="chat-input" placeholder="routing..." autocomplete="off">
+            <button type="button" id="send-btn" aria-label="Send message">Send</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>window.MAPS_API_KEY = '__MAPS_API_KEY__';</script>
+  <script src="script.js?v=2"></script>
+</body>
+</html>
