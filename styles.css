@@ -100,6 +100,18 @@ body {
   display: none;
 }
 
+.route-estimate {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  margin-top: 0;
+}
+
+.route-estimate[aria-hidden="true"] {
+  display: none;
+}
+
 .route-inputs {
   display: flex;
   flex-direction: column;
@@ -248,6 +260,161 @@ body {
   border-left: 3px solid var(--accent);
 }
 
+.stop-suggestion-wrap {
+  padding: 0;
+  background: transparent;
+  border-left: none;
+}
+
+.stop-suggestion-row {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 0.35rem;
+}
+
+.stop-suggestion-expand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  min-width: 32px;
+  padding: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, transform 0.15s;
+}
+
+.stop-suggestion-expand:hover {
+  color: var(--text);
+  background: var(--surface);
+}
+
+.stop-suggestion-expand.open {
+  color: var(--accent);
+  background: var(--surface);
+}
+
+.stop-suggestion-others {
+  display: none;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.stop-suggestion-others.is-open {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.stop-other-empty {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.stop-other-card {
+  position: relative;
+  padding: 0.5rem 2rem 0.5rem 0.75rem;
+  font-size: 0.85rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-width: 120px;
+}
+
+.stop-other-name {
+  display: block;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.stop-other-meta {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.stop-other-add {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 1.1rem;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+
+.stop-other-add:hover {
+  background: var(--accent-hover);
+}
+
+.stop-suggestion-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 2.25rem 0.6rem 0.85rem;
+  font-size: 0.95rem;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: left;
+  position: relative;
+  min-width: 140px;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.stop-suggestion-btn:hover {
+  background: var(--surface);
+  border-color: var(--accent);
+}
+
+.stop-suggestion-name {
+  font-weight: 500;
+}
+
+.stop-suggestion-meta {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.stop-suggestion-add {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+}
+
 .chat-input-row {
   display: flex;
   gap: 0.5rem;
@@ -283,16 +450,30 @@ body {
   font-size: 0.95rem;
   font-weight: 500;
   font-family: inherit;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.chat-input-row #send-btn {
   color: #fff;
   background: var(--accent);
   border: none;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: background 0.15s;
 }
 
-.chat-input-row button:hover {
+.chat-input-row #send-btn:hover {
   background: var(--accent-hover);
+}
+
+.chat-input-row #clear-btn {
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.chat-input-row #clear-btn:hover {
+  background: var(--surface-hover);
+  border-color: var(--text-muted);
 }
 
 .chat-input-row button:active {

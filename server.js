@@ -110,6 +110,54 @@ async function extractLocations(instructions) {
   return [];
 }
 
+// Find Place (Legacy): only request place_id to minimize cost; then use Place Details (ID) for full info.
+// radius: optional, in meters. Default 1000. Client can pass 10% of route distance, capped at 1000.
+app.get('/api/find-place', async (req, res) => {
+  const input = (req.query.input || '').trim();
+  const lat = parseFloat(req.query.lat);
+  const lng = parseFloat(req.query.lng);
+  let radius = parseInt(req.query.radius, 10);
+  if (!Number.isInteger(radius) || radius < 1) radius = 1000;
+  if (radius > 1000) radius = 1000;
+  if (!input || Number.isNaN(lat) || Number.isNaN(lng) || !MAPS_KEY) {
+    return res.status(400).json({ error: 'Missing input, lat, lng, or MAPS_API_KEY' });
+  }
+  const locationbias = `circle:${radius}@${lat},${lng}`;
+  const url = `https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input=${encodeURIComponent(input)}&inputtype=textquery&fields=place_id&locationbias=${encodeURIComponent(locationbias)}&key=${MAPS_KEY}`;
+  try {
+    console.log('[find-place] request:', { input, lat, lng, radius });
+    const r = await fetch(url);
+    const data = await r.json();
+    console.log('[find-place] response:', data.status, (data.candidates || []).length, 'candidates', data);
+    const placeIds = (data.candidates || []).map((c) => c.place_id).filter(Boolean);
+    return res.json({ place_ids: placeIds });
+  } catch (err) {
+    console.error('[find-place] error:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Place Details by place_id only (ID-only = lower-cost / unlimited tier when applicable).
+app.get('/api/place-details', async (req, res) => {
+  const placeId = (req.query.place_id || '').trim();
+  if (!placeId || !MAPS_KEY) {
+    return res.status(400).json({ error: 'Missing place_id or MAPS_API_KEY' });
+  }
+  const fields = 'place_id,name,formatted_address,geometry,opening_hours';
+  const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${encodeURIComponent(placeId)}&fields=${encodeURIComponent(fields)}&key=${MAPS_KEY}`;
+  try {
+    const r = await fetch(url);
+    const data = await r.json();
+    if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
+      return res.status(400).json({ error: data.error_message || data.status });
+    }
+    return res.json(data.result || {});
+  } catch (err) {
+    console.error('[place-details] error:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/extract-locations', async (req, res) => {
   const instructions = req.body?.instructions || [];
   console.log('[POST /api/extract-locations] received, instructions count:', instructions.length);
