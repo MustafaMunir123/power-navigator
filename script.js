@@ -580,48 +580,17 @@
   }
 
   function reorderStopsByTimeThenUpdate() {
-    var from = fromInput.value.trim();
-    var to = toInput.value.trim();
     var stops = window.addedStops;
-    if (!from || !to || !stops || stops.length < 2) {
+    if (!stops || stops.length < 2) {
       updateRouteWithStops();
       return;
     }
-    var start = window.routeStart;
-    var end = window.routeEnd;
-    if (!start || !end) {
-      updateRouteWithStops();
-      return;
-    }
-    var remaining = stops.slice();
-    var order = [];
-    var lat = start.lat;
-    var lng = start.lng;
-    while (remaining.length) {
-      var bestIdx = 0;
-      var bestDist = haversineMeters(lat, lng, remaining[0].lat != null ? remaining[0].lat : 0, remaining[0].lng != null ? remaining[0].lng : 0);
-      for (var i = 1; i < remaining.length; i++) {
-        var s = remaining[i];
-        var slat = s.lat != null ? s.lat : 0;
-        var slng = s.lng != null ? s.lng : 0;
-        var d = haversineMeters(lat, lng, slat, slng);
-        if (d < bestDist) {
-          bestDist = d;
-          bestIdx = i;
-        }
-      }
-      var next = remaining[bestIdx];
-      order.push(next);
-      lat = next.lat != null ? next.lat : lat;
-      lng = next.lng != null ? next.lng : lng;
-      remaining.splice(bestIdx, 1);
-    }
-    window.addedStops = order;
     showReadjustingOverlay();
-    updateRouteWithStops();
+    updateRouteWithStops({ optimizeWaypoints: true });
   }
 
-  function updateRouteWithStops() {
+  function updateRouteWithStops(opts) {
+    opts = opts || {};
     var from = fromInput.value.trim();
     var to = toInput.value.trim();
     if (!from || !to) return;
@@ -636,48 +605,50 @@
       }
       return { location: loc, stopover: true };
     });
-    routePlaceholder.textContent = 'Updating route with ' + window.addedStops.length + ' stop(s)…';
-    directionsService.route(
-      { origin: from, destination: to, waypoints: waypoints, travelMode: google.maps.TravelMode.DRIVING },
-      function (result, status) {
-        hideReadjustingOverlay();
-        if (status !== google.maps.DirectionsStatus.OK) {
-          routePlaceholder.textContent = 'Could not update route: ' + (status || 'Unknown error');
-          routePlaceholder.style.color = '#f85149';
-          return;
-        }
-        routePlaceholder.style.color = '';
-        routePlaceholder.textContent = '';
-        if (!routeMap) {
-          routeMap = new google.maps.Map(routeMapEl, {
-            zoom: 12,
-            center: { lat: 24.8607, lng: 67.0011 },
-            disableDefaultUI: false,
-            zoomControl: true,
-            mapTypeControl: false,
-            scaleControl: true,
-            fullscreenControl: true,
-          });
-          directionsRenderer = new google.maps.DirectionsRenderer({ map: routeMap, suppressMarkers: false });
-        }
-        directionsRenderer.setDirections(result);
-        var firstRoute = result.routes && result.routes[0];
-        if (firstRoute && firstRoute.bounds) routeMap.fitBounds(firstRoute.bounds);
-        if (firstRoute && firstRoute.legs && firstRoute.legs.length) {
-          var firstLeg = firstRoute.legs[0];
-          var lastLeg = firstRoute.legs[firstRoute.legs.length - 1];
-          if (firstLeg.steps && firstLeg.steps[0]) {
-            var sl = firstLeg.steps[0].start_location;
-            window.routeStart = { lat: typeof sl.lat === 'function' ? sl.lat() : sl.lat, lng: typeof sl.lng === 'function' ? sl.lng() : sl.lng };
-          }
-          if (lastLeg.steps && lastLeg.steps.length) {
-            var el = lastLeg.steps[lastLeg.steps.length - 1].end_location;
-            window.routeEnd = { lat: typeof el.lat === 'function' ? el.lat() : el.lat, lng: typeof el.lng === 'function' ? el.lng() : el.lng };
-          }
-        }
-        updateRouteEstimate(result);
+    var request = { origin: from, destination: to, waypoints: waypoints, travelMode: google.maps.TravelMode.DRIVING };
+    if (opts.optimizeWaypoints && waypoints.length >= 2) request.optimizeWaypoints = true;
+    routePlaceholder.textContent = opts.optimizeWaypoints ? 'Optimizing stop order…' : 'Updating route with ' + window.addedStops.length + ' stop(s)…';
+    directionsService.route(request, function (result, status) {
+      hideReadjustingOverlay();
+      if (status !== google.maps.DirectionsStatus.OK) {
+        routePlaceholder.textContent = 'Could not update route: ' + (status || 'Unknown error');
+        routePlaceholder.style.color = '#f85149';
+        return;
       }
-    );
+      routePlaceholder.style.color = '';
+      routePlaceholder.textContent = '';
+      var firstRoute = result.routes && result.routes[0];
+      if (firstRoute && firstRoute.waypoint_order && Array.isArray(firstRoute.waypoint_order) && firstRoute.waypoint_order.length === window.addedStops.length) {
+        window.addedStops = firstRoute.waypoint_order.map(function (i) { return window.addedStops[i]; });
+      }
+      if (!routeMap) {
+        routeMap = new google.maps.Map(routeMapEl, {
+          zoom: 12,
+          center: { lat: 24.8607, lng: 67.0011 },
+          disableDefaultUI: false,
+          zoomControl: true,
+          mapTypeControl: false,
+          scaleControl: true,
+          fullscreenControl: true,
+        });
+        directionsRenderer = new google.maps.DirectionsRenderer({ map: routeMap, suppressMarkers: false });
+      }
+      directionsRenderer.setDirections(result);
+      if (firstRoute && firstRoute.bounds) routeMap.fitBounds(firstRoute.bounds);
+      if (firstRoute && firstRoute.legs && firstRoute.legs.length) {
+        var firstLeg = firstRoute.legs[0];
+        var lastLeg = firstRoute.legs[firstRoute.legs.length - 1];
+        if (firstLeg.steps && firstLeg.steps[0]) {
+          var sl = firstLeg.steps[0].start_location;
+          window.routeStart = { lat: typeof sl.lat === 'function' ? sl.lat() : sl.lat, lng: typeof sl.lng === 'function' ? sl.lng() : sl.lng };
+        }
+        if (lastLeg.steps && lastLeg.steps.length) {
+          var el = lastLeg.steps[lastLeg.steps.length - 1].end_location;
+          window.routeEnd = { lat: typeof el.lat === 'function' ? el.lat() : el.lat, lng: typeof el.lng === 'function' ? el.lng() : el.lng };
+        }
+      }
+      updateRouteEstimate(result);
+    });
   }
 
   function updateRouteEstimate(result) {
