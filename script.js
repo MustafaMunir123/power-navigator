@@ -19,6 +19,8 @@
   const personalizeSwitch = document.getElementById('personalize-switch');
   const personalizeActionsEl = document.getElementById('personalize-actions');
   const readjustOverlayEl = document.getElementById('route-readjust-overlay');
+  const duplicatePopupEl = document.getElementById('duplicate-popup');
+  const duplicatePopupMessageEl = document.getElementById('duplicate-popup-title');
 
   function stripHtml(html) {
     var el = document.createElement('div');
@@ -44,7 +46,63 @@
     return R * c;
   }
 
+  function normalizeAddress(s) {
+    return (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  }
+
+  function isPlaceDestination(place, toValue) {
+    if (!toValue || !place) return false;
+    var toNorm = normalizeAddress(toValue);
+    var name = (place.name || '').trim();
+    var addr = (place.formatted_address || '').trim();
+    if (!toNorm) return false;
+    if (name && toNorm.indexOf(normalizeAddress(name)) >= 0) return true;
+    if (addr && toNorm === normalizeAddress(addr)) return true;
+    if (addr && toNorm.indexOf(normalizeAddress(addr)) >= 0) return true;
+    if (addr && normalizeAddress(addr).indexOf(toNorm) >= 0) return true;
+    return false;
+  }
+
+  function getRoutePlaces() {
+    var from = (fromInput && fromInput.value || '').trim();
+    var to = (toInput && toInput.value || '').trim();
+    var list = [{ name: '', address: from }, { name: '', address: to }];
+    (window.addedStops || []).forEach(function (s) {
+      list.push({
+        name: (s.name || '').trim(),
+        address: (s.formatted_address || '').trim()
+      });
+    });
+    return list.filter(function (p) { return p.address || p.name; });
+  }
+
+  function exactPlaceMatch(place, routePlaces) {
+    var placeAddr = normalizeAddress(place.formatted_address);
+    var placeName = normalizeAddress(place.name);
+    if (!placeAddr) return false;
+    for (var i = 0; i < routePlaces.length; i++) {
+      var r = routePlaces[i];
+      var rAddr = normalizeAddress(r.address);
+      var rName = normalizeAddress(r.name);
+      if (rAddr !== placeAddr) continue;
+      if (!placeName || !rName) return true;
+      if (placeName === rName) return true;
+    }
+    return false;
+  }
+
+  function showDuplicatePopup(message) {
+    if (duplicatePopupMessageEl) duplicatePopupMessageEl.textContent = message || 'This is already in your route.';
+    if (duplicatePopupEl) duplicatePopupEl.setAttribute('aria-hidden', 'false');
+  }
+
+  function hideDuplicatePopup() {
+    if (duplicatePopupEl) duplicatePopupEl.setAttribute('aria-hidden', 'true');
+  }
+
   function appendStopButton(place, stopType, notRecommended) {
+    var toValue = (toInput && toInput.value || '').trim();
+    var atDestination = isPlaceDestination(place, toValue);
     var wrap = document.createElement('div');
     wrap.className = 'message message-assistant stop-suggestion-wrap';
     var row = document.createElement('div');
@@ -57,8 +115,8 @@
     nameEl.className = 'stop-suggestion-name';
     nameEl.textContent = place.name || 'Place';
     var meta = document.createElement('span');
-    meta.className = 'stop-suggestion-meta';
-    meta.textContent = place.open_now ? 'Open now' : 'Closed';
+    meta.className = 'stop-suggestion-meta' + (atDestination ? ' at-destination' : '');
+    meta.textContent = atDestination ? 'At your destination' : (place.open_now ? 'Open now' : 'Closed');
     btn.appendChild(nameEl);
     btn.appendChild(meta);
     var addCircle = document.createElement('span');
@@ -82,14 +140,15 @@
     section.className = 'stop-suggestion-others';
     if (notRecommended && notRecommended.length > 0) {
       notRecommended.forEach(function (p) {
+        var atDest = isPlaceDestination(p, toValue);
         var card = document.createElement('div');
         card.className = 'stop-other-card';
         var nameSpan = document.createElement('span');
         nameSpan.className = 'stop-other-name';
         nameSpan.textContent = p.name || 'Place';
         var metaSpan = document.createElement('span');
-        metaSpan.className = 'stop-other-meta';
-        metaSpan.textContent = p.open_now ? 'Open now' : 'Closed';
+        metaSpan.className = 'stop-other-meta' + (atDest ? ' at-destination' : '');
+        metaSpan.textContent = atDest ? 'At your destination' : (p.open_now ? 'Open now' : 'Closed');
         var addBtn = document.createElement('button');
         addBtn.type = 'button';
         addBtn.className = 'stop-other-add';
@@ -447,20 +506,64 @@
   }
 
   function addStopToRoute(place) {
-    if (!window.addedStops) window.addedStops = [];
-    if (window.addedStops.some(function (s) { return (s.place_id || s.name) === (place.place_id || place.name); })) return;
-    window.addedStops.push({
-      place_id: place.place_id,
-      name: place.name,
-      formatted_address: place.formatted_address,
-      lat: place.lat,
-      lng: place.lng
-    });
-    if (adjustStopsSwitch && adjustStopsSwitch.checked && window.addedStops.length >= 2) {
-      reorderStopsByTimeThenUpdate();
-    } else {
-      updateRouteWithStops();
+    var toValue = (toInput && toInput.value || '').trim();
+    if (isPlaceDestination(place, toValue)) {
+      showDuplicatePopup('This is already part of your route (your destination).');
+      return;
     }
+    var routePlaces = getRoutePlaces();
+    if (exactPlaceMatch(place, routePlaces)) {
+      showDuplicatePopup('This is already in your route.');
+      return;
+    }
+    fetch('/api/check-address-duplicate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: (place.name || '').trim(),
+        address: (place.formatted_address || '').trim(),
+        routePlaces: routePlaces
+      }),
+    })
+      .then(function (r) {
+        if (!r.ok) return r.json().then(function (j) { throw new Error(j.error || r.statusText); });
+        return r.json();
+      })
+      .then(function (data) {
+        if (data.duplicate) {
+          showDuplicatePopup('This is already in your route.');
+          return;
+        }
+        if (!window.addedStops) window.addedStops = [];
+        window.addedStops.push({
+          place_id: place.place_id,
+          name: place.name,
+          formatted_address: place.formatted_address,
+          lat: place.lat,
+          lng: place.lng
+        });
+        if (adjustStopsSwitch && adjustStopsSwitch.checked && window.addedStops.length >= 2) {
+          reorderStopsByTimeThenUpdate();
+        } else {
+          updateRouteWithStops();
+        }
+      })
+      .catch(function (err) {
+        console.error('[check-address-duplicate]', err);
+        if (!window.addedStops) window.addedStops = [];
+        window.addedStops.push({
+          place_id: place.place_id,
+          name: place.name,
+          formatted_address: place.formatted_address,
+          lat: place.lat,
+          lng: place.lng
+        });
+        if (adjustStopsSwitch && adjustStopsSwitch.checked && window.addedStops.length >= 2) {
+          reorderStopsByTimeThenUpdate();
+        } else {
+          updateRouteWithStops();
+        }
+      });
   }
 
   function stopToLocation(s) {
@@ -722,6 +825,12 @@
     }
     syncPersonalizeActions();
     personalizeSwitch.addEventListener('change', syncPersonalizeActions);
+  }
+  if (duplicatePopupEl) {
+    var popupClose = duplicatePopupEl.querySelector('.duplicate-popup-close');
+    var popupBackdrop = duplicatePopupEl.querySelector('.duplicate-popup-backdrop');
+    if (popupClose) popupClose.addEventListener('click', hideDuplicatePopup);
+    if (popupBackdrop) popupBackdrop.addEventListener('click', hideDuplicatePopup);
   }
   chatInput.addEventListener('keydown', function (e) {
     if (e.key === 'Enter') sendMessage();

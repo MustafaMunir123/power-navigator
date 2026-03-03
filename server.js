@@ -18,10 +18,14 @@ app.use(express.json());
 
 function buildPrompt(source, destination, userQuery) {
   return `source: ${source}
-user query: ${userQuery}
-destination: ${destination}
+  destination: ${destination}
 
-Task: Identify any stops (places) in the user's query. If there are stops, return ONLY a single JSON object, nothing else. No markdown, no explanation, no other text.
+  USER_QUERY: ${userQuery}
+
+
+Task: Identify any stops (places) the user explicitly asks for in the USER_QUERY. Return only what the user asked for—do not add or infer extra stops.
+Use a generic type for categories (e.g. bookstore, atm, restaurant) or the place name when they mention a specific brand 9. Do not invent or echo misspelled words (e.g. KFC) "grab some books" or "rab some books" → return "bookstore" or "books", not "raban books").
+Return ONLY a single JSON object, nothing else. No markdown, no explanation.
 Format: {"stops": ["place1", "place2"]}
 If no stops: {"stops": []}`;
 }
@@ -72,6 +76,73 @@ app.post('/api/detect-stops', async (req, res) => {
   } catch (err) {
     console.error('[POST /api/detect-stops] error:', err);
     return res.status(500).json({ error: err.message || 'Failed to detect stops' });
+  }
+});
+
+function buildAddressDuplicatePrompt(selectedName, selectedAddress, routePlaces) {
+  const list = (routePlaces || [])
+    .filter((p) => p && (p.address || p.name))
+    .map((p, i) => `${i + 1}. Name: ${p.name || '(none)'}, Address: ${p.address || '(none)'}`)
+    .join('\n');
+  return `Given one selected place (name + address) and a list of route places (origin, destination, or already added stops; each with name + address), determine if the selected place is the SAME venue as any in the list. Ignore minor formatting differences in addresses.
+Important: Two different shops at the same address (different names) are NOT duplicates—only treat as duplicate if it is the same business/place.
+
+Selected place:
+Name: ${selectedName || '(none)'}
+Address: ${selectedAddress || ''}
+
+Route places:
+${list || '(none)'}
+
+Return ONLY a JSON object, no other text. Format: {"duplicate": true} or {"duplicate": false}`;
+}
+
+async function checkAddressDuplicate(selectedName, selectedAddress, routePlaces) {
+  if (!selectedAddress || !routePlaces || routePlaces.length === 0) return false;
+  const openai = new OpenAI({
+    apiKey: NOVA_KEY,
+    baseURL: 'https://api.nova.amazon.com/v1/',
+  });
+  const prompt = buildAddressDuplicatePrompt(selectedName, selectedAddress, routePlaces);
+  const response = await openai.chat.completions.create({
+    model: 'nova-2-lite-v1',
+    messages: [{ role: 'user', content: prompt }],
+  });
+  const content = response.choices?.[0]?.message?.content?.trim() || '';
+  const jsonMatch = content.match(/\{[\s\S]*?"duplicate"[\s\S]*?\}/);
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[0]);
+      return parsed.duplicate === true;
+    } catch (_) {
+      console.log('[check-address-duplicate] Fallback to default duplicate=false (JSON parse failed)');
+      return false;
+    }
+  }
+  console.log('[check-address-duplicate] Fallback to default duplicate=false (no valid response from Nova)');
+  return false;
+}
+
+app.post('/api/check-address-duplicate', async (req, res) => {
+  try {
+    const { name, address, routePlaces, routeAddresses } = req.body || {};
+    const places = routePlaces && Array.isArray(routePlaces)
+      ? routePlaces
+      : Array.isArray(routeAddresses)
+        ? routeAddresses.map((addr) => ({ name: '', address: addr || '' }))
+        : null;
+    if (!address || !places || places.length === 0) {
+      return res.status(400).json({ error: 'Missing address or routePlaces/routeAddresses array' });
+    }
+    if (!NOVA_KEY) {
+      return res.status(503).json({ error: 'NOVA_API_KEY not set in .env' });
+    }
+    const duplicate = await checkAddressDuplicate(name || '', address, places);
+    return res.json({ duplicate });
+  } catch (err) {
+    console.error('[POST /api/check-address-duplicate] error:', err);
+    console.log('[check-address-duplicate] Fallback to default duplicate=false (exception)');
+    return res.json({ duplicate: false });
   }
 });
 

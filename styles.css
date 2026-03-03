@@ -598,3 +598,65 @@ body {
 .chat-input-row button:active {
   transform: scale(0.98);
 }
+
+.duplicate-popup {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: none;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 1rem;
+  pointer-events: none;
+}
+
+.duplicate-popup[aria-hidden="false"] {
+  display: flex;
+  pointer-events: auto;
+}
+
+.duplicate-popup-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.duplicate-popup-panel {
+  position: relative;
+  width: 100%;
+  max-width: 320px;
+  padding: 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.duplicate-popup-message {
+  margin: 0 0 1rem;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.duplicate-popup-close {
+  display: block;
+  width: 100%;
+  padding: 0.6rem 1rem;
+  font-size: 0.9rem;
+  font-family: inherit;
+  font-weight: 500;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.duplicate-popup-close:hover {
+  background: var(--accent-hover);
+}
+
+.stop-suggestion-meta.at-destination {
+  color: var(--accent);
+  font-style: italic;
+}
