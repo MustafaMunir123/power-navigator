@@ -15,6 +15,10 @@
   const routePlaceholder = document.getElementById('route-placeholder');
   const routeEstimateEl = document.getElementById('route-estimate');
   const clearBtn = document.getElementById('clear-btn');
+  const adjustStopsSwitch = document.getElementById('adjust-stops-switch');
+  const personalizeSwitch = document.getElementById('personalize-switch');
+  const personalizeActionsEl = document.getElementById('personalize-actions');
+  const readjustOverlayEl = document.getElementById('route-readjust-overlay');
 
   function stripHtml(html) {
     var el = document.createElement('div');
@@ -305,13 +309,22 @@
             suppressMarkers: false,
           });
         }
-        directionsRenderer.setDirections(result);
         var firstRoute = result.routes && result.routes[0];
         if (!firstRoute) {
           console.warn('[Directions] no result.routes[0], result:', result);
         }
-        var bounds = firstRoute && firstRoute.bounds;
-        if (bounds) routeMap.fitBounds(bounds);
+        if (window.addedStops && window.addedStops.length > 0) {
+          routePlaceholder.textContent = '';
+          routePlaceholder.style.color = '';
+          updateRouteWithStops();
+        } else {
+          directionsRenderer.setDirections(result);
+          var bounds = firstRoute && firstRoute.bounds;
+          if (bounds) routeMap.fitBounds(bounds);
+          routePlaceholder.textContent = '';
+          routePlaceholder.style.color = '';
+          updateRouteEstimate(result);
+        }
         // Directions API (client-side): result.routes[0].legs[].steps[].html_instructions + end_location for lat/lng
         var instructions = [];
         var stepCoords = [];
@@ -443,6 +456,65 @@
       lat: place.lat,
       lng: place.lng
     });
+    if (adjustStopsSwitch && adjustStopsSwitch.checked && window.addedStops.length >= 2) {
+      reorderStopsByTimeThenUpdate();
+    } else {
+      updateRouteWithStops();
+    }
+  }
+
+  function stopToLocation(s) {
+    if (s.lat != null && s.lng != null) return new google.maps.LatLng(s.lat, s.lng);
+    return s.formatted_address || s.name || '';
+  }
+
+  function showReadjustingOverlay() {
+    if (readjustOverlayEl) readjustOverlayEl.setAttribute('aria-hidden', 'false');
+  }
+
+  function hideReadjustingOverlay() {
+    if (readjustOverlayEl) readjustOverlayEl.setAttribute('aria-hidden', 'true');
+  }
+
+  function reorderStopsByTimeThenUpdate() {
+    var from = fromInput.value.trim();
+    var to = toInput.value.trim();
+    var stops = window.addedStops;
+    if (!from || !to || !stops || stops.length < 2) {
+      updateRouteWithStops();
+      return;
+    }
+    var start = window.routeStart;
+    var end = window.routeEnd;
+    if (!start || !end) {
+      updateRouteWithStops();
+      return;
+    }
+    var remaining = stops.slice();
+    var order = [];
+    var lat = start.lat;
+    var lng = start.lng;
+    while (remaining.length) {
+      var bestIdx = 0;
+      var bestDist = haversineMeters(lat, lng, remaining[0].lat != null ? remaining[0].lat : 0, remaining[0].lng != null ? remaining[0].lng : 0);
+      for (var i = 1; i < remaining.length; i++) {
+        var s = remaining[i];
+        var slat = s.lat != null ? s.lat : 0;
+        var slng = s.lng != null ? s.lng : 0;
+        var d = haversineMeters(lat, lng, slat, slng);
+        if (d < bestDist) {
+          bestDist = d;
+          bestIdx = i;
+        }
+      }
+      var next = remaining[bestIdx];
+      order.push(next);
+      lat = next.lat != null ? next.lat : lat;
+      lng = next.lng != null ? next.lng : lng;
+      remaining.splice(bestIdx, 1);
+    }
+    window.addedStops = order;
+    showReadjustingOverlay();
     updateRouteWithStops();
   }
 
@@ -465,6 +537,7 @@
     directionsService.route(
       { origin: from, destination: to, waypoints: waypoints, travelMode: google.maps.TravelMode.DRIVING },
       function (result, status) {
+        hideReadjustingOverlay();
         if (status !== google.maps.DirectionsStatus.OK) {
           routePlaceholder.textContent = 'Could not update route: ' + (status || 'Unknown error');
           routePlaceholder.style.color = '#f85149';
@@ -487,6 +560,18 @@
         directionsRenderer.setDirections(result);
         var firstRoute = result.routes && result.routes[0];
         if (firstRoute && firstRoute.bounds) routeMap.fitBounds(firstRoute.bounds);
+        if (firstRoute && firstRoute.legs && firstRoute.legs.length) {
+          var firstLeg = firstRoute.legs[0];
+          var lastLeg = firstRoute.legs[firstRoute.legs.length - 1];
+          if (firstLeg.steps && firstLeg.steps[0]) {
+            var sl = firstLeg.steps[0].start_location;
+            window.routeStart = { lat: typeof sl.lat === 'function' ? sl.lat() : sl.lat, lng: typeof sl.lng === 'function' ? sl.lng() : sl.lng };
+          }
+          if (lastLeg.steps && lastLeg.steps.length) {
+            var el = lastLeg.steps[lastLeg.steps.length - 1].end_location;
+            window.routeEnd = { lat: typeof el.lat === 'function' ? el.lat() : el.lat, lng: typeof el.lng === 'function' ? el.lng() : el.lng };
+          }
+        }
         updateRouteEstimate(result);
       }
     );
@@ -572,7 +657,6 @@
     }
 
     window.findPlacesRunning = false;
-    window.addedStops = [];
     showRoute();
     appendMessage(text, 'user');
     chatInput.value = '';
@@ -625,6 +709,20 @@
     window.addedStops = [];
     refreshRouteWithoutStops();
   });
+  if (adjustStopsSwitch) {
+    adjustStopsSwitch.addEventListener('change', function () {
+      if (adjustStopsSwitch.checked && window.addedStops && window.addedStops.length >= 2) {
+        reorderStopsByTimeThenUpdate();
+      }
+    });
+  }
+  if (personalizeSwitch && personalizeActionsEl) {
+    function syncPersonalizeActions() {
+      personalizeActionsEl.setAttribute('aria-hidden', personalizeSwitch.checked ? 'false' : 'true');
+    }
+    syncPersonalizeActions();
+    personalizeSwitch.addEventListener('change', syncPersonalizeActions);
+  }
   chatInput.addEventListener('keydown', function (e) {
     if (e.key === 'Enter') sendMessage();
   });

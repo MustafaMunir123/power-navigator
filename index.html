@@ -17,6 +17,7 @@
       <section class="route-display" id="route-display">
         <div class="route-map-wrap">
           <div id="route-map" class="route-map" aria-hidden="true"></div>
+          <div id="route-readjust-overlay" class="route-readjust-overlay" aria-hidden="true">Readjusting</div>
           <div id="route-placeholder" class="route-placeholder">Your route will appear here when you click Send.</div>
         </div>
         <div id="route-estimate" class="route-estimate" aria-hidden="true"></div>
@@ -37,6 +38,22 @@
             <div class="autocomplete-dropdown" id="to-dropdown" aria-hidden="true"></div>
             <div class="autocomplete-error" id="to-error" aria-live="polite"></div>
           </div>
+        </div>
+      </section>
+
+      <section class="switches-section">
+        <label class="switch-wrap">
+          <input type="checkbox" id="adjust-stops-switch" class="switch-input" autocomplete="off">
+          <span class="switch-track"><span class="switch-knob"></span></span>
+          <span class="switch-label">Adjust Stops</span>
+        </label>
+        <label class="switch-wrap">
+          <input type="checkbox" id="personalize-switch" class="switch-input" autocomplete="off">
+          <span class="switch-track"><span class="switch-knob"></span></span>
+          <span class="switch-label">Personalize</span>
+        </label>
+        <div class="personalize-actions" id="personalize-actions" aria-hidden="true">
+          <button type="button" id="upload-timeline-btn" class="upload-timeline-btn">Upload timeline</button>
         </div>
       </section>
 
