@@ -21,6 +21,8 @@
   const readjustOverlayEl = document.getElementById('route-readjust-overlay');
   const duplicatePopupEl = document.getElementById('duplicate-popup');
   const duplicatePopupMessageEl = document.getElementById('duplicate-popup-title');
+  const uploadTimelineBtn = document.getElementById('upload-timeline-btn');
+  const timelineFileInput = document.getElementById('timeline-file-input');
 
   function stripHtml(html) {
     var el = document.createElement('div');
@@ -53,13 +55,11 @@
   function isPlaceDestination(place, toValue) {
     if (!toValue || !place) return false;
     var toNorm = normalizeAddress(toValue);
-    var name = (place.name || '').trim();
-    var addr = (place.formatted_address || '').trim();
+    var nameNorm = normalizeAddress(place.name);
+    var addrNorm = normalizeAddress(place.formatted_address);
     if (!toNorm) return false;
-    if (name && toNorm.indexOf(normalizeAddress(name)) >= 0) return true;
-    if (addr && toNorm === normalizeAddress(addr)) return true;
-    if (addr && toNorm.indexOf(normalizeAddress(addr)) >= 0) return true;
-    if (addr && normalizeAddress(addr).indexOf(toNorm) >= 0) return true;
+    if (nameNorm && toNorm === nameNorm) return true;
+    if (addrNorm && toNorm === addrNorm) return true;
     return false;
   }
 
@@ -79,14 +79,15 @@
   function exactPlaceMatch(place, routePlaces) {
     var placeAddr = normalizeAddress(place.formatted_address);
     var placeName = normalizeAddress(place.name);
-    if (!placeAddr) return false;
     for (var i = 0; i < routePlaces.length; i++) {
       var r = routePlaces[i];
       var rAddr = normalizeAddress(r.address);
       var rName = normalizeAddress(r.name);
-      if (rAddr !== placeAddr) continue;
-      if (!placeName || !rName) return true;
-      if (placeName === rName) return true;
+      if (!rAddr) continue;
+      if (placeName && (placeName === rAddr || rAddr.indexOf(placeName) === 0 || placeName.indexOf(rAddr) === 0)) return true;
+      if (placeAddr && (placeAddr === rAddr || rAddr.indexOf(placeAddr) === 0 || placeAddr.indexOf(rAddr) === 0)) {
+        if (!rName || !placeName || placeName === rName) return true;
+      }
     }
     return false;
   }
@@ -182,12 +183,18 @@
     chatMessages.scrollTop = chatMessages.scrollHeight;
   }
 
-  function tryFindStopsNearRoute() {
+  function tryFindStopsNearRoute(onComplete) {
     var stops = window.lastDetectedStops;
     var map = window.routeLocationMap;
     var radius = window.routeSearchRadius || 1000;
-    if (!stops || !stops.length || !map || !map.length) return;
-    if (window.findPlacesRunning) return;
+    if (!stops || !stops.length || !map || !map.length) {
+      if (typeof onComplete === 'function') onComplete();
+      return;
+    }
+    if (window.findPlacesRunning) {
+      if (typeof onComplete === 'function') window.pendingPersonalizationCallback = onComplete;
+      return;
+    }
     var locationsWithCoords = map.filter(function (m) { return m.lat != null && m.lng != null; });
     var n = locationsWithCoords.length;
     if (n > 3) {
@@ -196,7 +203,10 @@
     } else if (n === 3) {
       locationsWithCoords = locationsWithCoords.slice(1, 3);
     }
-    if (!locationsWithCoords.length) return;
+    if (!locationsWithCoords.length) {
+      if (typeof onComplete === 'function') onComplete();
+      return;
+    }
     window.findPlacesRunning = true;
     var refLat = locationsWithCoords[0].lat;
     var refLng = locationsWithCoords[0].lng;
@@ -243,6 +253,12 @@
         }
       });
       chatMessages.scrollTop = chatMessages.scrollHeight;
+      if (typeof onComplete === 'function') onComplete();
+      if (window.pendingPersonalizationCallback) {
+        var fn = window.pendingPersonalizationCallback;
+        window.pendingPersonalizationCallback = null;
+        fn();
+      }
     }
     function addPlace(place, stopType) {
       var locObj = place.geometry && place.geometry.location;
@@ -486,11 +502,13 @@
                 });
               }
               appendMessage('Route locations: ' + (multiWord.length ? multiWord.join(', ') : '(none with more than one word)'), 'assistant');
-              tryFindStopsNearRoute();
+              tryFindStopsNearRoute(function () { maybeRunPersonalizationSuggestions(from, to); });
             } else if (instructions.length === 0) {
               appendMessage('Route locations: No step instructions in directions (check console for route/legs/steps).', 'assistant');
+              maybeRunPersonalizationSuggestions(from, to);
             } else {
               appendMessage('Route locations: (none extracted). Raw: ' + JSON.stringify(data), 'assistant');
+              maybeRunPersonalizationSuggestions(from, to);
             }
             chatMessages.scrollTop = chatMessages.scrollHeight;
           })
@@ -779,6 +797,9 @@
 
   sendBtn.addEventListener('click', sendMessage);
   clearBtn.addEventListener('click', function () {
+    window.personalizationSuggestionsShown = false;
+    var suggestionsEl = chatMessages && chatMessages.querySelector('[data-section="personalization-suggestions"]');
+    if (suggestionsEl) suggestionsEl.remove();
     if (!window.addedStops || !window.addedStops.length) return;
     window.addedStops = [];
     refreshRouteWithoutStops();
@@ -797,6 +818,464 @@
     syncPersonalizeActions();
     personalizeSwitch.addEventListener('change', syncPersonalizeActions);
   }
+
+  function getPartOfDay(isoString) {
+    var d = new Date(isoString);
+    var h = d.getHours();
+    if (h >= 5 && h < 12) return 'Morning';
+    if (h >= 12 && h < 18) return 'AFTERNOON';
+    return 'EVENING';
+  }
+
+  function getDayName(isoString) {
+    var days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    var d = new Date(isoString);
+    return days[d.getDay()];
+  }
+
+  function getUserTimeZone() {
+    try {
+      var tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      return tz || undefined;
+    } catch (e) {
+      return undefined;
+    }
+  }
+
+  function getCurrentDayName() {
+    // TODO: remove hardcode – for testing only
+    return 'thursday';
+    // var tz = getUserTimeZone();
+    // try {
+    //   if (tz) {
+    //     var dayStr = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'long' }).format(new Date());
+    //     return (dayStr || '').toLowerCase();
+    //   }
+    // } catch (e) {}
+    // return ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][new Date().getDay()];
+  }
+
+  function getCurrentPartOfDay() {
+    // TODO: remove hardcode – for testing only
+    return 'EVENING';
+    // var h;
+    // var tz = getUserTimeZone();
+    // try {
+    //   if (tz) {
+    //     var parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hour12: false }).formatToParts(new Date());
+    //     var hourPart = parts && parts.find(function (p) { return p.type === 'hour'; });
+    //     h = hourPart ? parseInt(hourPart.value, 10) : new Date().getHours();
+    //   } else {
+    //     h = new Date().getHours();
+    //   }
+    // } catch (e) {
+    //   h = new Date().getHours();
+    // }
+    // if (h >= 5 && h < 12) return 'Morning';
+    // if (h >= 12 && h < 18) return 'AFTERNOON';
+    // return 'EVENING';
+  }
+
+  function tryQueriesInOrder(queries, patternText, routePlaces, lat, lng, radius, patternIdx, cb) {
+    var i = 0;
+    function tryNext() {
+      if (i >= queries.length) { cb(null); return; }
+      var query = queries[i];
+      i++;
+      var q = 'input=' + encodeURIComponent(query) + '&lat=' + lat + '&lng=' + lng + '&radius=' + radius;
+      console.log('[personalization-suggestions] find-place query:', query, 'pattern index:', patternIdx);
+      fetch('/api/find-place?' + q)
+        .then(function (r) { return r.ok ? r.json() : r.json().then(function (j) { throw new Error(j.error || r.statusText); }); })
+        .then(function (fd) {
+          var placeIds = (fd.place_ids || []).slice(0, 3);
+          console.log('[personalization-suggestions] find-place result for "' + query + '":', placeIds.length ? 'place_ids ' + placeIds.join(', ') : 'no results');
+          if (!placeIds.length) { tryNext(); return; }
+          return fetch('/api/place-details?place_id=' + encodeURIComponent(placeIds[0]))
+            .then(function (r2) { return r2.ok ? r2.json() : r2.json().then(function (j) { throw new Error(j.error || r2.statusText); }); })
+            .then(function (place) {
+              var fakePlace = {
+                place_id: place.place_id,
+                name: place.name,
+                formatted_address: place.formatted_address,
+                lat: place.geometry && place.geometry.location && (typeof place.geometry.location.lat === 'function' ? place.geometry.location.lat() : place.geometry.location.lat),
+                lng: place.geometry && place.geometry.location && (typeof place.geometry.location.lng === 'function' ? place.geometry.location.lng() : place.geometry.location.lng)
+              };
+              var alreadyInRoute = exactPlaceMatch(fakePlace, routePlaces);
+              if (alreadyInRoute) {
+                console.log('[personalization-suggestions] filtered (already in route):', fakePlace.name, '|', fakePlace.formatted_address);
+                tryNext();
+              } else {
+                console.log('[personalization-suggestions] found (new):', fakePlace.name, '|', fakePlace.formatted_address);
+                cb({ patternText: patternText, place: fakePlace });
+              }
+            })
+            .catch(function (err) {
+              console.log('[personalization-suggestions] place-details failed for', placeIds[0], err && err.message);
+              tryNext();
+            });
+        })
+        .catch(function (err) {
+          console.log('[personalization-suggestions] find-place failed for "' + query + '"', err && err.message);
+          tryNext();
+        });
+    }
+    tryNext();
+  }
+
+  function extractSearchQueryFromPattern(patternText) {
+    if (!patternText || typeof patternText !== 'string') return null;
+    var t = patternText.trim();
+    var m = t.match(/(?:visit |eat out at |go to )([^.]+?)(?=\s+on\s|\s+in\s|\.|$)/i);
+    if (m && m[1]) return m[1].trim();
+    m = t.match(/from\s+(.+?)\s+to\s+(.+?)(?=\s+in the|\s+on\s|\s+in\s|\.|$)/i);
+    if (m && m[1] && m[2]) return [m[1].trim(), m[2].trim()];
+    return null;
+  }
+
+  function maybeRunPersonalizationSuggestions(from, to) {
+    if (!personalizeSwitch || !personalizeSwitch.checked) return;
+    if (!window.historicData || typeof window.historicData.commonPatterns !== 'object') return;
+    if (window.personalizationSuggestionsShown) return;
+    var currentDay = getCurrentDayName();
+    var dayPatterns = window.historicData.commonPatterns[currentDay];
+    if (!dayPatterns || !dayPatterns.length) {
+      var partOfDay = getCurrentPartOfDay();
+      console.log('[personalization-suggestions] No patterns for current day (' + currentDay + '), part of day: ' + partOfDay + '; skipping.');
+      if (chatMessages) {
+        window.personalizationSuggestionsShown = true;
+        var msg = document.createElement('div');
+        msg.className = 'message message-assistant';
+        msg.setAttribute('data-section', 'personalization-suggestions');
+        msg.textContent = 'Suggestions: No patterns for ' + currentDay + ' in your timeline.';
+        chatMessages.appendChild(msg);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      }
+      return;
+    }
+    if (!window.routeStart || !window.routeStart.lat || !window.routeStart.lng) return;
+    window.personalizationSuggestionsShown = true;
+    var currentPartOfDay = getCurrentPartOfDay();
+    console.log('[personalization-suggestions] current day:', currentDay, 'current part of day:', currentPartOfDay);
+    console.log('[personalization-suggestions] Running for ' + currentDay + ', ' + dayPatterns.length + ' pattern(s).');
+    runPersonalizationSuggestions(from, to);
+  }
+
+  function runPersonalizationSuggestions(from, to) {
+    var currentDay = getCurrentDayName();
+    var partOfDay = getCurrentPartOfDay();
+    var dayPatterns = window.historicData.commonPatterns[currentDay];
+    if (!dayPatterns || !dayPatterns.length) return;
+    var patternsMap = {};
+    dayPatterns.forEach(function (p, i) { patternsMap[String(i)] = p; });
+    var lat = window.routeStart.lat;
+    var lng = window.routeStart.lng;
+    var radius = window.routeSearchRadius || 1000;
+    fetch('/api/match-patterns', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: from, destination: to, currentDay: currentDay, partOfDay: partOfDay, patternsMap: patternsMap })
+    })
+      .then(function (r) { return r.ok ? r.json() : r.json().then(function (j) { throw new Error(j.error || r.statusText); }); })
+      .then(function (data) {
+        var indices = data.patterns || [];
+        if (!indices.length) {
+          console.log('[personalization-suggestions] No matching patterns for this route.');
+          appendPersonalizationMessage('Suggestions: No patterns matched this route for ' + currentDay + '.');
+          return;
+        }
+        console.log('[personalization-suggestions] Matched pattern indices:', indices);
+        var routePlaces = getRoutePlaces();
+        var results = [];
+        var pending = indices.length;
+        indices.forEach(function (idx) {
+          var patternText = dayPatterns[Number(idx)];
+          if (patternText == null) { pending--; if (pending === 0) renderPersonalizationSuggestions(results, currentDay); return; }
+          fetch('/api/extract-places-from-pattern', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ patternText: patternText })
+          })
+            .then(function (r) { return r.ok ? r.json() : r.json().then(function (j) { throw new Error(j.error || r.statusText); }); })
+            .then(function (extractData) {
+              var queries = (extractData.places || []).filter(function (s) { return typeof s === 'string' && s.trim(); });
+              if (!queries.length) {
+                console.log('[personalization-suggestions] pattern index', idx, ': no places extracted from pattern');
+                pending--; if (pending === 0) renderPersonalizationSuggestions(results, currentDay); return;
+              }
+              tryQueriesInOrder(queries, patternText, routePlaces, lat, lng, radius, idx, function (added) {
+                if (added) results.push(added);
+                pending--;
+                if (pending === 0) renderPersonalizationSuggestions(results, currentDay);
+              });
+            })
+            .catch(function (err) {
+              console.log('[personalization-suggestions] extract-places-from-pattern failed for index', idx, err && err.message);
+              pending--; if (pending === 0) renderPersonalizationSuggestions(results, currentDay);
+            });
+        });
+      })
+      .catch(function (err) {
+        console.error('[personalization-suggestions] match-patterns failed:', err);
+        window.personalizationSuggestionsShown = false;
+      });
+  }
+
+  function appendPersonalizationMessage(text) {
+    if (!chatMessages || !text) return;
+    var wrap = chatMessages.querySelector('[data-section="personalization-suggestions"]');
+    if (wrap) wrap.remove();
+    var msg = document.createElement('div');
+    msg.className = 'message message-assistant';
+    msg.setAttribute('data-section', 'personalization-suggestions');
+    msg.textContent = text;
+    chatMessages.appendChild(msg);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+
+  function renderPersonalizationSuggestions(results, currentDay) {
+    if (!results || !results.length) {
+      if (results && results.length === 0) {
+        console.log('[personalization-suggestions] No new locations to suggest (all already in route or not found).');
+        if (currentDay) appendPersonalizationMessage('Suggestions: No new locations found for your matched patterns for ' + currentDay + ' (or they\'re already in your route).');
+      }
+      return;
+    }
+    if (!chatMessages) return;
+    console.log('[personalization-suggestions] Showing ' + results.length + ' suggestion(s).');
+    var existing = chatMessages.querySelector('[data-section="personalization-suggestions"]');
+    if (existing) existing.remove();
+    var wrap = document.createElement('div');
+    wrap.className = 'message message-assistant personalization-suggestions-wrap';
+    wrap.setAttribute('data-section', 'personalization-suggestions');
+    var title = document.createElement('div');
+    title.className = 'personalization-suggestions-title';
+    title.textContent = 'Suggestions (from your timeline)';
+    wrap.appendChild(title);
+    results.forEach(function (item) {
+      var row = document.createElement('div');
+      row.className = 'personalization-suggestion-row';
+      var patternLabel = document.createElement('span');
+      patternLabel.className = 'personalization-suggestion-pattern';
+      patternLabel.textContent = item.patternText;
+      var sep = document.createElement('span');
+      sep.className = 'personalization-suggestion-sep';
+      sep.textContent = ' | ';
+      var locWrap = document.createElement('span');
+      locWrap.className = 'personalization-suggestion-locs';
+      var locName = document.createElement('span');
+      locName.className = 'personalization-suggestion-loc-name';
+      locName.textContent = item.place.name || 'Place';
+      var addBtn = document.createElement('button');
+      addBtn.type = 'button';
+      addBtn.className = 'personalization-suggestion-add';
+      addBtn.setAttribute('aria-label', 'Add to route');
+      addBtn.textContent = '+';
+      addBtn.addEventListener('click', function () { addStopToRoute(item.place); });
+      locWrap.appendChild(locName);
+      locWrap.appendChild(addBtn);
+      row.appendChild(patternLabel);
+      row.appendChild(sep);
+      row.appendChild(locWrap);
+      wrap.appendChild(row);
+    });
+    chatMessages.appendChild(wrap);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+
+  function dateOnly(isoString) {
+    return isoString.slice(0, 10);
+  }
+
+  function fetchPlaceName(placeId) {
+    return fetch('/api/place-details?place_id=' + encodeURIComponent(placeId))
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('Place details failed')); })
+      .then(function (data) { return (data && data.name) ? data.name : ''; })
+      .catch(function () { return ''; });
+  }
+
+  function processTimelineJson(parsed) {
+    var segments = parsed.semanticSegments;
+    if (!Array.isArray(segments)) return null;
+    var visits = [];
+    segments.forEach(function (seg) {
+      if (!seg || !seg.visit || !seg.visit.topCandidate) return;
+      var top = seg.visit.topCandidate;
+      var startTime = seg.startTime;
+      if (!startTime) return;
+      visits.push({
+        startTime: startTime,
+        date: dateOnly(startTime),
+        dayName: getDayName(startTime),
+        partOfDay: getPartOfDay(startTime),
+        placeId: top.placeId || '',
+        semanticType: (top.semanticType != null) ? String(top.semanticType) : '',
+        latLng: (top.placeLocation && top.placeLocation.latLng) ? top.placeLocation.latLng : ''
+      });
+    });
+    var uniquePlaceIds = [];
+    var seen = {};
+    visits.forEach(function (v) {
+      if (v.placeId && !seen[v.placeId]) { seen[v.placeId] = true; uniquePlaceIds.push(v.placeId); }
+    });
+    return { visits: visits, uniquePlaceIds: uniquePlaceIds };
+  }
+
+  function buildHistoricData(visits, placeNamesByPlaceId) {
+    var minDate = null;
+    var maxDate = null;
+    var dayKeys = {};
+    visits.forEach(function (v) {
+      var d = v.date;
+      if (!minDate || d < minDate) minDate = d;
+      if (!maxDate || d > maxDate) maxDate = d;
+      if (!dayKeys[v.dayName]) dayKeys[v.dayName] = {};
+      if (!dayKeys[v.dayName][d]) dayKeys[v.dayName][d] = [];
+      dayKeys[v.dayName][d].push({
+        placeId: v.placeId,
+        semanticType: v.semanticType,
+        latLng: v.latLng,
+        name: placeNamesByPlaceId[v.placeId] || '',
+        partOfDay: v.partOfDay
+      });
+    });
+    var weeks = 1;
+    if (minDate && maxDate) {
+      var a = new Date(minDate);
+      var b = new Date(maxDate);
+      var diffDays = Math.round((b - a) / (24 * 60 * 60 * 1000));
+      weeks = Math.max(1, Math.ceil(diffDays / 7));
+    }
+    var historicData = { commonPatterns: {}, weeks: weeks };
+    Object.keys(dayKeys).sort().forEach(function (dayName) {
+      historicData[dayName] = dayKeys[dayName];
+    });
+    return historicData;
+  }
+
+  function buildSimplifiedMap(historicData) {
+    var simplified = {};
+    var skipKeys = { commonPatterns: true, weeks: true };
+    Object.keys(historicData).forEach(function (dayName) {
+      if (skipKeys[dayName]) return;
+      var dayData = historicData[dayName];
+      if (!dayData || typeof dayData !== 'object') return;
+      simplified[dayName] = {};
+      Object.keys(dayData).forEach(function (dateStr) {
+        var visits = dayData[dateStr];
+        if (!Array.isArray(visits) || !visits.length) return;
+        var parts = visits.map(function (v) {
+          var name = (v.name || '').trim() || '(unnamed)';
+          return name + ' [' + (v.partOfDay || '') + ']';
+        });
+        simplified[dayName][dateStr] = parts.join(' -> ');
+      });
+    });
+    return simplified;
+  }
+
+  if (uploadTimelineBtn && timelineFileInput) {
+    uploadTimelineBtn.addEventListener('click', function () { timelineFileInput.click(); });
+    timelineFileInput.addEventListener('change', function () {
+      var file = timelineFileInput.files && timelineFileInput.files[0];
+      timelineFileInput.value = '';
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function () {
+        var text = reader.result;
+        var parsed;
+        try {
+          parsed = JSON.parse(text);
+        } catch (e) {
+          console.error('[timeline] Invalid JSON:', e);
+          if (chatMessages) {
+            var errEl = document.createElement('div');
+            errEl.className = 'message message-assistant';
+            errEl.textContent = 'Timeline: Invalid JSON in file.';
+            chatMessages.appendChild(errEl);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+          }
+          return;
+        }
+        if (!parsed || !parsed.semanticSegments) {
+          console.error('[timeline] Missing semanticSegments');
+          if (chatMessages) {
+            var errEl = document.createElement('div');
+            errEl.className = 'message message-assistant';
+            errEl.textContent = 'Timeline: File must contain "semanticSegments" array.';
+            chatMessages.appendChild(errEl);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+          }
+          return;
+        }
+        var extracted = processTimelineJson(parsed);
+        if (!extracted || !extracted.visits.length) {
+          console.log('[timeline] No visit segments found');
+          if (chatMessages) {
+            var errEl = document.createElement('div');
+            errEl.className = 'message message-assistant';
+            errEl.textContent = 'Timeline: No segments with "visit" data found.';
+            chatMessages.appendChild(errEl);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+          }
+          return;
+        }
+        var placeNamesByPlaceId = {};
+        var placeIdPromises = extracted.uniquePlaceIds.map(function (placeId) {
+          return fetchPlaceName(placeId).then(function (name) { placeNamesByPlaceId[placeId] = name; });
+        });
+        Promise.all(placeIdPromises).then(function () {
+          var historicData = buildHistoricData(extracted.visits, placeNamesByPlaceId);
+          var simplifiedMap = buildSimplifiedMap(historicData);
+          console.log('[timeline] simplifiedMap (sent to AI):', simplifiedMap);
+          return fetch('/api/detect-common-patterns', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ simplifiedMap: simplifiedMap })
+          })
+            .then(function (r) { return r.ok ? r.json() : r.json().then(function (j) { throw new Error(j.error || r.statusText); }); })
+            .then(function (data) {
+              var patterns = (data && data.commonPatterns && typeof data.commonPatterns === 'object') ? data.commonPatterns : {};
+              historicData.commonPatterns = patterns;
+              window.historicData = historicData;
+              console.log('[timeline] commonPatterns:', historicData.commonPatterns);
+              console.log('[timeline] historicData:', historicData);
+              if (chatMessages) {
+                var okEl = document.createElement('div');
+                okEl.className = 'message message-assistant';
+                okEl.textContent = 'Timeline loaded. Check console for historicData and commonPatterns.';
+                chatMessages.appendChild(okEl);
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+              }
+            })
+            .catch(function (err) {
+              console.error('[timeline] detect-common-patterns failed:', err);
+              historicData.commonPatterns = {};
+              window.historicData = historicData;
+              console.log('[timeline] historicData:', historicData);
+              if (chatMessages) {
+                var errEl = document.createElement('div');
+                errEl.className = 'message message-assistant';
+                errEl.textContent = 'Timeline loaded; pattern detection failed. Check console.';
+                chatMessages.appendChild(errEl);
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+              }
+            });
+        });
+      };
+      reader.onerror = function () {
+        console.error('[timeline] File read error');
+        if (chatMessages) {
+          var errEl = document.createElement('div');
+          errEl.className = 'message message-assistant';
+          errEl.textContent = 'Timeline: Could not read file.';
+          chatMessages.appendChild(errEl);
+          chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+      };
+      reader.readAsText(file, 'UTF-8');
+    });
+  }
+
   if (duplicatePopupEl) {
     var popupClose = duplicatePopupEl.querySelector('.duplicate-popup-close');
     var popupBackdrop = duplicatePopupEl.querySelector('.duplicate-popup-backdrop');
@@ -834,7 +1313,7 @@
           input.value = p.description;
           dropdown.innerHTML = '';
           dropdown.setAttribute('aria-hidden', 'true');
-          input.focus();
+          input.blur();
         });
         item.addEventListener('keydown', function (e) {
           if (e.key === 'Enter') item.click();
@@ -868,34 +1347,34 @@
         autocompleteService.getPlacePredictions(
           { input: value },
           function (predictions, status) {
-          if (requestTimeout) {
-            clearTimeout(requestTimeout);
-            requestTimeout = null;
-          }
-          errorEl.style.color = '';
-          console.log('Places response:', status, predictions ? predictions.length : 0);
-          if (status !== google.maps.places.PlacesServiceStatus.OK && status !== google.maps.places.PlacesServiceStatus.ZERO_RESULTS) {
-            console.warn('Places Autocomplete status:', status);
-          }
-          if (status === google.maps.places.PlacesServiceStatus.OK) {
-            errorEl.textContent = '';
-            showPredictions(predictions);
-          } else if (status === google.maps.places.PlacesServiceStatus.ZERO_RESULTS) {
-            errorEl.textContent = '';
-            showPredictions([]);
-          } else {
-            dropdown.innerHTML = '';
-            dropdown.setAttribute('aria-hidden', 'true');
-            var statusStr = String(status || 'UNKNOWN');
-            if (statusStr === 'REQUEST_DENIED') {
-              errorEl.textContent = 'Places API denied. In API key restrictions, add "Places API" to the allowed APIs list (with Maps JavaScript API). Enable billing if needed.';
-            } else if (statusStr === 'OVER_QUERY_LIMIT') {
-              errorEl.textContent = 'Over query limit. Check billing and quotas in Google Cloud.';
+            if (requestTimeout) {
+              clearTimeout(requestTimeout);
+              requestTimeout = null;
+            }
+            errorEl.style.color = '';
+            console.log('Places response:', status, predictions ? predictions.length : 0);
+            if (status !== google.maps.places.PlacesServiceStatus.OK && status !== google.maps.places.PlacesServiceStatus.ZERO_RESULTS) {
+              console.warn('Places Autocomplete status:', status);
+            }
+            if (status === google.maps.places.PlacesServiceStatus.OK) {
+              errorEl.textContent = '';
+              showPredictions(predictions);
+            } else if (status === google.maps.places.PlacesServiceStatus.ZERO_RESULTS) {
+              errorEl.textContent = '';
+              showPredictions([]);
             } else {
-              errorEl.textContent = 'Places error: ' + statusStr + '. Enable Places API and billing for this key.';
+              dropdown.innerHTML = '';
+              dropdown.setAttribute('aria-hidden', 'true');
+              var statusStr = String(status || 'UNKNOWN');
+              if (statusStr === 'REQUEST_DENIED') {
+                errorEl.textContent = 'Places API denied. In API key restrictions, add "Places API" to the allowed APIs list (with Maps JavaScript API). Enable billing if needed.';
+              } else if (statusStr === 'OVER_QUERY_LIMIT') {
+                errorEl.textContent = 'Over query limit. Check billing and quotas in Google Cloud.';
+              } else {
+                errorEl.textContent = 'Places error: ' + statusStr + '. Enable Places API and billing for this key.';
+              }
             }
           }
-        }
         );
       } catch (err) {
         if (requestTimeout) clearTimeout(requestTimeout);

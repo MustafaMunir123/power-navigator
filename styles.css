@@ -385,6 +385,76 @@ body {
   border-left: none;
 }
 
+.personalization-suggestions-wrap {
+  padding: 0.75rem 1rem;
+  background: transparent;
+  border-left: none;
+}
+
+.personalization-suggestions-title {
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 0.5rem;
+  font-size: 0.95rem;
+}
+
+.personalization-suggestion-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.personalization-suggestion-row:first-of-type {
+  margin-top: 0;
+}
+
+.personalization-suggestion-pattern {
+  color: var(--text-muted);
+  flex: 1 1 100%;
+  max-width: 100%;
+}
+
+.personalization-suggestion-sep {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.personalization-suggestion-locs {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.personalization-suggestion-loc-name {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.personalization-suggestion-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 0.35rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.personalization-suggestion-add:hover {
+  color: var(--bg);
+  background: var(--accent);
+}
+
 .stop-suggestion-row {
   display: inline-flex;
   align-items: stretch;

@@ -22,9 +22,9 @@ function buildPrompt(source, destination, userQuery) {
 
   USER_QUERY: ${userQuery}
 
-
-Task: Identify any stops (places) the user explicitly asks for in the USER_QUERY. Return only what the user asked for—do not add or infer extra stops.
-Use a generic type for categories (e.g. bookstore, atm, restaurant) or the place name when they mention a specific brand 9. Do not invent or echo misspelled words (e.g. KFC) "grab some books" or "rab some books" → return "bookstore" or "books", not "raban books").
+Task: Identify stops (places) the user explicitly asks for in the USER_QUERY only. Return only what the user asked for—do not add or infer extra stops.
+CRITICAL: Do NOT include the source or the destination in the stops list. The source and destination are the user's start and end points; they are never additional stops. Even if the destination (or source) is a place name or appears in the query, do not add it to stops. Only add places the user explicitly requests as stops (e.g. "grab KFC" → KFC; do not add the destination).
+Use a generic type for categories (e.g. bookstore, atm, restaurant) or the place name when they mention a specific brand. Do not invent or echo misspelled words.
 Return ONLY a single JSON object, nothing else. No markdown, no explanation.
 Format: {"stops": ["place1", "place2"]}
 If no stops: {"stops": []}`;
@@ -122,6 +122,219 @@ async function checkAddressDuplicate(selectedName, selectedAddress, routePlaces)
   console.log('[check-address-duplicate] Fallback to default duplicate=false (no valid response from Nova)');
   return false;
 }
+
+function buildCommonPatternsPrompt(simplifiedMap) {
+  const lines = [];
+  Object.keys(simplifiedMap || {}).sort().forEach((dayName) => {
+    const dayData = simplifiedMap[dayName];
+    if (!dayData || typeof dayData !== 'object') return;
+    lines.push(`${dayName}:`);
+    Object.keys(dayData).sort().forEach((dateStr) => {
+      lines.push(`  ${dateStr}: ${dayData[dateStr]}`);
+    });
+  });
+  const input = lines.join('\n');
+  return `You are analyzing a user's location history grouped by day of week. Each day has one or more dates, and for each date an itinerary string of the form "Place A [partOfDay] -> Place B [partOfDay] -> ..." (chronological order; partOfDay is Morning, AFTERNOON, or EVENING).
+
+INPUT (day -> date -> itinerary):
+${input || '(none)'}
+
+Task: Identify recurring patterns per day. Only state patterns that are clearly supported by the data. Be concise. Every pattern MUST include at least two different place names from the itineraries (e.g. a route from A to B, or on your way from A to B you visit C). Never use generic phrases like "a burger place", "a pharmacy", "Home", or "Office" without the real venue/location name.
+
+Rules:
+- Each pattern MUST involve at least 2 locations (e.g. "from Place A to Place B", or "on your way from A to B you usually visit C").
+- Do NOT suggest patterns that describe only one location, e.g. "You usually end at X on Thursdays" or "You usually eat out at X on Sunday"—these are not valid; they have only one route/location.
+- Prefer route-style patterns: "On Thursdays, on your way from Gulshan Park to Kaniz Fatima you usually visit City Pharmacy."
+
+Example of valid patterns (always 2+ places):
+- "On Thursdays, on your way from Gulshan Park to Kaniz Fatima you usually visit City Pharmacy."
+- "You usually go from Paradise Bakery to Gulshan Park in the afternoon on Tuesdays."
+
+Return ONLY valid JSON: an object with day-of-week keys (e.g. "sunday", "thursday") and values that are arrays of pattern strings. Include only days where you find at least one valid pattern (2+ locations). If there are no such patterns, return {}.
+
+Example output (every pattern must name at least 2 locations):
+{"thursday": ["On Thursdays, on your way from Gulshan Park to Prestige Trade Centre you usually visit City Pharmacy."], "tuesday": ["You usually go from Paradise Bakery to Gulshan Park in the afternoon on Tuesdays."]}
+
+Now return your response in that exact JSON format. No other text, no markdown.`;
+}
+
+function isSingleLocationPattern(text) {
+  if (!text || typeof text !== 'string') return true;
+  const t = text.trim().toLowerCase();
+  if (/you usually end at .+ on (sunday|monday|tuesday|wednesday|thursday|friday|saturday)/.test(t)) return true;
+  if (/you usually eat out at .+ on (sunday|monday|tuesday|wednesday|thursday|friday|saturday)/.test(t)) return true;
+  const hasFromTo = /\bfrom\b/.test(t) && /\bto\b/.test(t);
+  return !hasFromTo;
+}
+
+function filterCommonPatterns(parsed) {
+  const result = {};
+  Object.keys(parsed || {}).forEach((day) => {
+    const arr = Array.isArray(parsed[day]) ? parsed[day] : [];
+    const kept = arr.filter((s) => typeof s === 'string' && !isSingleLocationPattern(s));
+    if (kept.length) result[day] = kept;
+  });
+  return result;
+}
+
+async function detectCommonPatterns(simplifiedMap) {
+  if (!simplifiedMap || typeof simplifiedMap !== 'object') return {};
+  const openai = new OpenAI({
+    apiKey: NOVA_KEY,
+    baseURL: 'https://api.nova.amazon.com/v1/',
+  });
+  const prompt = buildCommonPatternsPrompt(simplifiedMap);
+  const response = await openai.chat.completions.create({
+    model: 'nova-2-lite-v1',
+    messages: [{ role: 'user', content: prompt }],
+  });
+  const content = (response.choices?.[0]?.message?.content || '').trim();
+  const jsonMatch = content.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const raw = {};
+        Object.keys(parsed).forEach((k) => {
+          if (Array.isArray(parsed[k])) raw[k] = parsed[k].filter((s) => typeof s === 'string');
+          else if (typeof parsed[k] === 'string') raw[k] = [parsed[k]];
+        });
+        return filterCommonPatterns(raw);
+      }
+    } catch (_) {
+      console.log('[detect-common-patterns] JSON parse failed');
+    }
+  }
+  return {};
+}
+
+app.post('/api/detect-common-patterns', async (req, res) => {
+  try {
+    const { simplifiedMap } = req.body || {};
+    if (!NOVA_KEY) {
+      return res.status(503).json({ error: 'NOVA_API_KEY not set in .env' });
+    }
+    const commonPatterns = await detectCommonPatterns(simplifiedMap);
+    return res.json({ commonPatterns });
+  } catch (err) {
+    console.error('[POST /api/detect-common-patterns] error:', err);
+    return res.status(500).json({ error: err.message || 'Failed to detect patterns' });
+  }
+});
+
+function buildMatchPatternsPrompt(source, destination, currentDay, partOfDay, patternsMap) {
+  const list = Object.keys(patternsMap || {})
+    .sort((a, b) => Number(a) - Number(b))
+    .map((i) => `${i}: ${patternsMap[i]}`)
+    .join('\n');
+  return `User is traveling from ${source} to ${destination} on a ${currentDay} ${partOfDay}.
+(Consider: source as "${source}", destination as "${destination}", current day as "${currentDay}", part of day as "${partOfDay}".)
+
+Below are some common patterns (index: pattern text):
+${list || '(none)'}
+
+If you see any common pattern that meaningfully matches this trip, return its index. A pattern matches if either the source (${source}) OR the destination (${destination}) matches or relates to the pattern, along with part of day (${partOfDay})—either source or destination is enough.
+
+Return format:
+{"patterns": [0, 2]}
+
+If no patterns match, return:
+{"patterns": []}
+
+Note: Only match meaningful patterns. Return ONLY valid JSON with a "patterns" array of index numbers, no other text, no markdown.`;
+}
+
+async function matchPatterns(source, destination, currentDay, partOfDay, patternsMap) {
+  if (!patternsMap || typeof patternsMap !== 'object' || Object.keys(patternsMap).length === 0) {
+    return [];
+  }
+  const openai = new OpenAI({
+    apiKey: NOVA_KEY,
+    baseURL: 'https://api.nova.amazon.com/v1/',
+  });
+  const prompt = buildMatchPatternsPrompt(source, destination, currentDay, partOfDay, patternsMap);
+  const response = await openai.chat.completions.create({
+    model: 'nova-2-lite-v1',
+    messages: [{ role: 'user', content: prompt }],
+  });
+  const content = (response.choices?.[0]?.message?.content || '').trim();
+  const jsonMatch = content.match(/\{[\s\S]*?"patterns"[\s\S]*?\}/);
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[0]);
+      const arr = parsed.patterns;
+      return Array.isArray(arr) ? arr.filter((n) => Number.isInteger(n) && n >= 0) : [];
+    } catch (_) {
+      console.log('[match-patterns] JSON parse failed');
+    }
+  }
+  return [];
+}
+
+app.post('/api/match-patterns', async (req, res) => {
+  try {
+    const { source, destination, currentDay, partOfDay, patternsMap } = req.body || {};
+    if (!source || !destination || !currentDay || !partOfDay) {
+      return res.status(400).json({ error: 'Missing source, destination, currentDay, or partOfDay' });
+    }
+    if (!NOVA_KEY) {
+      return res.status(503).json({ error: 'NOVA_API_KEY not set in .env' });
+    }
+    const patterns = await matchPatterns(source, destination, currentDay, partOfDay, patternsMap);
+    return res.json({ patterns }); // patterns: [0, 2, ...] index numbers only
+  } catch (err) {
+    console.error('[POST /api/match-patterns] error:', err);
+    return res.status(500).json({ error: err.message || 'Failed to match patterns' });
+  }
+});
+
+function buildExtractPlacesFromPatternPrompt(patternText) {
+  return `From this pattern text, extract all place or location names mentioned. Return only a JSON object with key "places" and value an array of strings (each string is one place name). Like detecting stops from user queries: list only real place/location names, in the order they appear if there are multiple.
+
+Pattern: "${(patternText || '').trim()}"
+
+Example: For "you usually go from Prestige Trade Centre to Haji Rang Elahi Eye & General Hospital in the evening" return {"places": ["Prestige Trade Centre", "Haji Rang Elahi Eye & General Hospital"]}
+Return ONLY valid JSON, no other text, no markdown.`;
+}
+
+async function extractPlacesFromPattern(patternText) {
+  if (!patternText || typeof patternText !== 'string' || !patternText.trim()) return [];
+  const openai = new OpenAI({
+    apiKey: NOVA_KEY,
+    baseURL: 'https://api.nova.amazon.com/v1/',
+  });
+  const prompt = buildExtractPlacesFromPatternPrompt(patternText);
+  const response = await openai.chat.completions.create({
+    model: 'nova-2-lite-v1',
+    messages: [{ role: 'user', content: prompt }],
+  });
+  const content = (response.choices?.[0]?.message?.content || '').trim();
+  const jsonMatch = content.match(/\{[\s\S]*?"places"[\s\S]*?\}/);
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[0]);
+      const arr = parsed.places;
+      return Array.isArray(arr) ? arr.filter((s) => typeof s === 'string' && s.trim()).map((s) => s.trim()) : [];
+    } catch (_) {
+      console.log('[extract-places-from-pattern] JSON parse failed');
+    }
+  }
+  return [];
+}
+
+app.post('/api/extract-places-from-pattern', async (req, res) => {
+  try {
+    const { patternText } = req.body || {};
+    if (!NOVA_KEY) {
+      return res.status(503).json({ error: 'NOVA_API_KEY not set in .env' });
+    }
+    const places = await extractPlacesFromPattern(patternText);
+    return res.json({ places });
+  } catch (err) {
+    console.error('[POST /api/extract-places-from-pattern] error:', err);
+    return res.status(500).json({ error: err.message || 'Failed to extract places' });
+  }
+});
 
 app.post('/api/check-address-duplicate', async (req, res) => {
   try {
