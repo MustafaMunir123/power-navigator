@@ -4,23 +4,17 @@ Single-page app: route fields (From/To) with Places autocomplete + chat.
 
 ## Run Locally
 
-```bash
-cd path/to/power-navigator
-npm install
-npm start
-```
-
-## Setup
-
 1. **`.env`** — Create a `.env` file with:
    ```
    MAPS_API_KEY=google_map_api_key
    NOVA_API_KEY=amazon_nova_api_key
    ```
 
-- **Directions response** (when you click Send with From/To filled): logged in the **browser** only. Open DevTools (F12) → **Console** and look for `[Maps Directions] status:` and full response.
-- **Nova API response** (when you send a chat message): logged in the **terminal** where the server is running. Look for `[Nova API] full response:` and `[Nova API] message content:`.
-- To see those server logs, start the app from a terminal (`npm start`) and keep that window open; don’t run it in the background or from an IDE run config that hides the output.
+2. ```bash
+   cd path/to/power-navigator
+   npm install
+   npm start
+   ```
 
 ---
 
