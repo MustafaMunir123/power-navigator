@@ -18,30 +18,16 @@ Single-page app: route fields (From/To) with Places autocomplete + chat.
 
 ---
 
-## One-click Deploy
-You can deploy Power Navigator to a single **Lightsail** instance with **one form + click** using CloudFormation. No CLI required in the browser flow.
+## Deploy to AWS
 
-```
-https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?templateURL=https://raw.githubusercontent.com/MustafaMunir123/power-navigator/main/template-lightsail.yaml&stackName=power-navigator
-```
+**Lightsail** (if available on your account):
 
-Or **manually**:
+**[Deploy with Lightsail (us-east-1)](https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create/review?templateURL=https%3A%2F%2Fpower-navigator-template.s3.us-east-1.amazonaws.com%2Ftemplate-lightsail.yaml&stackName=power-navigator)**
 
-1. **AWS Console** → **CloudFormation** → **Create stack** → **With new resources**.
-2. **Template**: Upload `template-lightsail.yaml` from this repo (or paste the template URL above if the file is in a public repo).
-3. **Parameters**:
-   - **MapsApiKey** – your maps API key (autocomplete, directions, place search)
-   - **NovaApiKey** – your Amazon Nova API key
-   - **RepoUrl** – Git clone URL (default: `https://github.com/MustafaMunir123/power-navigator.git`).
-   - **InstanceName** – optional (default: `power-navigator`).
-4. **Create stack**. Wait 5–10 minutes for the instance to start and the launch script to install Node, clone the repo, and start the app.
-5. **Outputs** → copy **AppUrl** (e.g. `http://<static-ip>:3000`) and open it in your browser.
+**EC2** (use this if you're on hackathon credits — Lightsail often isn't included):
 
-### What gets created
+1. **CloudFormation** → **Create stack** → **Upload a template file** → choose **template-ec2.yaml** from this repo.
+2. Set **MapsApiKey** and **NovaApiKey**, then **Create stack**.
+3. Wait ~5–10 minutes. In **Outputs**, copy **AppUrl** (e.g. `http://<elastic-ip>:3000`) and open it in your browser.
 
-- **Lightsail instance** (Ubuntu 22.04, micro) with ports 22 and 3000 open
-- **Static IP** attached to the instance
-- **Launch script** (User Data): installs Node 20, clones your repo, sets `.env`, runs `pm2 start server.js`
-
-
-Note: `template-lightsail.yaml` and set `BlueprintId` to `ubuntu_20_04`, then upload that file as the template.
+Uses **EC2** (t2.micro), **Elastic IP**, and a **security group** (ports 22 and 3000). All within the hackathon-credited services.

@@ -1,6 +1,6 @@
 # Power Navigator one-click deploy: Lightsail instance + Static IP
-# Launch via: CloudFormation → Create stack → Upload template (or use S3/raw URL)
-# Parameters: MapsApiKey, NovaApiKey, and optionally RepoUrl
+# BundleId small_1_0 = $5/mo (1 GB RAM, 1 vCPU, 40 GB SSD) — qualifies for 3 months free (750 hrs/mo).
+# If small_1_0 is unavailable in your region, try small_2_0 or micro_2_0 (512 MB).
 
 AWSTemplateFormatVersion: '2010-09-09'
 Description: Power Navigator on Lightsail - one instance, Node.js app, static IP
@@ -16,7 +16,7 @@ Parameters:
     Description: Amazon Nova API key
   RepoUrl:
     Type: String
-    Default: 'https://github.com/your-username/power-navigator.git'
+    Default: 'https://github.com/MustafaMunir123/ai-navigator.git'
     Description: Git clone URL (use your fork or the main repo)
   InstanceName:
     Type: String
@@ -29,7 +29,7 @@ Resources:
     Properties:
       InstanceName: !Ref InstanceName
       BlueprintId: ubuntu_22_04
-      BundleId: micro_2_0
+      BundleId: small_1_0
       Networking:
         Ports:
           - FromPort: 22
