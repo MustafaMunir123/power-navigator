@@ -40,6 +40,14 @@ body {
   text-align: center;
 }
 
+.header-logo {
+  display: block;
+  margin: 0 auto 0.5rem;
+  height: 112px;
+  width: auto;
+  object-fit: contain;
+}
+
 .header h1 {
   margin: 0;
   font-size: 1.75rem;
@@ -377,6 +385,11 @@ body {
 .message-assistant {
   background: var(--surface-hover);
   border-left: 3px solid var(--accent);
+}
+
+.message-logging {
+  color: #6b7280;
+  font-style: italic;
 }
 
 .stop-suggestion-wrap {

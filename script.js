@@ -1,6 +1,6 @@
-// AI Navigator - UI + custom Places autocomplete (programmatic, so we control errors)
+// Power Navigator - UI + custom Places autocomplete (programmatic, so we control errors)
 (function () {
-  console.log('[AI Navigator] script loaded — Nova is called on the server (check terminal for [POST /api/detect-stops] and [Nova API])');
+  console.log('[Power Navigator] script loaded — Nova is called on the server (check terminal for [POST /api/detect-stops] and [Nova API])');
   const chatMessages = document.getElementById('chat-messages');
   const chatInput = document.getElementById('chat-input');
   const sendBtn = document.getElementById('send-btn');
@@ -30,9 +30,9 @@
     return (el.textContent || el.innerText || '').trim();
   }
 
-  function appendMessage(text, role) {
+  function appendMessage(text, role, options) {
     const div = document.createElement('div');
-    div.className = 'message message-' + role;
+    div.className = 'message message-' + role + (options && options.logging ? ' message-logging' : '');
     div.textContent = text;
     chatMessages.appendChild(div);
     chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -211,7 +211,7 @@
     var refLat = locationsWithCoords[0].lat;
     var refLng = locationsWithCoords[0].lng;
     var pendingMsg = document.createElement('div');
-    pendingMsg.className = 'message message-assistant';
+    pendingMsg.className = 'message message-assistant message-logging';
     pendingMsg.setAttribute('data-pending', 'find-places');
     pendingMsg.textContent = 'Finding stops near route…';
     chatMessages.appendChild(pendingMsg);
@@ -249,7 +249,7 @@
           var notRecommended = places.filter(function (p) { return (p.place_id || p.name) !== (chosen.place_id || chosen.name); });
           appendStopButton(chosen, stopType, notRecommended);
         } else {
-          appendMessage(stopType + ' near route: (none found)', 'assistant');
+          appendMessage(stopType + ' near route: (none found)', 'assistant', { logging: true });
         }
       });
       chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -467,7 +467,7 @@
           if (firstRoute.legs && firstRoute.legs[0]) console.log('[Directions] first leg keys:', Object.keys(firstRoute.legs[0]), 'first step:', firstRoute.legs[0].steps && firstRoute.legs[0].steps[0] ? Object.keys(firstRoute.legs[0].steps[0]) : 'no steps');
         }
         console.log('[Directions] instructions count:', instructions.length, instructions);
-        appendMessage('Extracting route locations…', 'assistant');
+        appendMessage('Extracting route locations…', 'assistant', { logging: true });
         chatMessages.scrollTop = chatMessages.scrollHeight;
         console.log('[Directions] calling /api/extract-locations with', instructions.length, 'instructions');
         fetch('/api/extract-locations', {
@@ -501,13 +501,13 @@
                   lng: multiWordCoords[j] ? multiWordCoords[j].lng : null
                 });
               }
-              appendMessage('Route locations: ' + (multiWord.length ? multiWord.join(', ') : '(none with more than one word)'), 'assistant');
+              appendMessage('Route locations: ' + (multiWord.length ? multiWord.join(', ') : '(none with more than one word)'), 'assistant', { logging: true });
               tryFindStopsNearRoute(function () { maybeRunPersonalizationSuggestions(from, to); });
             } else if (instructions.length === 0) {
-              appendMessage('Route locations: No step instructions in directions (check console for route/legs/steps).', 'assistant');
+              appendMessage('Route locations: No step instructions in directions (check console for route/legs/steps).', 'assistant', { logging: true });
               maybeRunPersonalizationSuggestions(from, to);
             } else {
-              appendMessage('Route locations: (none extracted). Raw: ' + JSON.stringify(data), 'assistant');
+              appendMessage('Route locations: (none extracted). Raw: ' + JSON.stringify(data), 'assistant', { logging: true });
               maybeRunPersonalizationSuggestions(from, to);
             }
             chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -516,7 +516,7 @@
             console.error('[extract-locations] error:', err.message);
             var last = chatMessages.querySelector('.message-assistant:last-of-type');
             if (last && last.textContent === 'Extracting route locations…') last.remove();
-            appendMessage('Route locations error: ' + err.message, 'assistant');
+            appendMessage('Route locations error: ' + err.message, 'assistant', { logging: true });
             chatMessages.scrollTop = chatMessages.scrollHeight;
           });
       }
@@ -755,11 +755,11 @@
     var source = from;
     var destination = to;
     if (!source || !destination) {
-      appendMessage('Enter both From and To to detect stops.', 'assistant');
+      appendMessage('Enter both From and To to detect stops.', 'assistant', { logging: true });
       return;
     }
     var pendingEl = document.createElement('div');
-    pendingEl.className = 'message message-assistant';
+    pendingEl.className = 'message message-assistant message-logging';
     pendingEl.setAttribute('data-pending', 'stops');
     pendingEl.textContent = 'Checking for stops…';
     chatMessages.appendChild(pendingEl);
@@ -780,9 +780,9 @@
         var pending = chatMessages.querySelector('[data-pending="stops"]');
         if (pending) pending.remove();
         if (stops.length) {
-          appendMessage('Detected stops: ' + stops.join(', '), 'assistant');
+          appendMessage('Detected stops: ' + stops.join(', '), 'assistant', { logging: true });
         } else {
-          appendMessage('No stops detected in your message.', 'assistant');
+          appendMessage('No stops detected in your message.', 'assistant', { logging: true });
         }
         console.log('[detect-stops] response', data);
         tryFindStopsNearRoute();
@@ -791,7 +791,7 @@
         console.error('[detect-stops] fetch error:', err);
         var pending = chatMessages.querySelector('[data-pending="stops"]');
         if (pending) pending.remove();
-        appendMessage('Error: ' + (err.message || 'Could not detect stops.'), 'assistant');
+        appendMessage('Error: ' + (err.message || 'Could not detect stops.'), 'assistant', { logging: true });
       });
   }
 
@@ -944,7 +944,7 @@
       if (chatMessages) {
         window.personalizationSuggestionsShown = true;
         var msg = document.createElement('div');
-        msg.className = 'message message-assistant';
+        msg.className = 'message message-assistant message-logging';
         msg.setAttribute('data-section', 'personalization-suggestions');
         msg.textContent = 'Suggestions: No patterns for ' + currentDay + ' in your timeline.';
         chatMessages.appendChild(msg);
@@ -1025,7 +1025,7 @@
     var wrap = chatMessages.querySelector('[data-section="personalization-suggestions"]');
     if (wrap) wrap.remove();
     var msg = document.createElement('div');
-    msg.className = 'message message-assistant';
+    msg.className = 'message message-assistant message-logging';
     msg.setAttribute('data-section', 'personalization-suggestions');
     msg.textContent = text;
     chatMessages.appendChild(msg);
@@ -1189,7 +1189,7 @@
           console.error('[timeline] Invalid JSON:', e);
           if (chatMessages) {
             var errEl = document.createElement('div');
-            errEl.className = 'message message-assistant';
+            errEl.className = 'message message-assistant message-logging';
             errEl.textContent = 'Timeline: Invalid JSON in file.';
             chatMessages.appendChild(errEl);
             chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -1200,7 +1200,7 @@
           console.error('[timeline] Missing semanticSegments');
           if (chatMessages) {
             var errEl = document.createElement('div');
-            errEl.className = 'message message-assistant';
+            errEl.className = 'message message-assistant message-logging';
             errEl.textContent = 'Timeline: File must contain "semanticSegments" array.';
             chatMessages.appendChild(errEl);
             chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -1212,7 +1212,7 @@
           console.log('[timeline] No visit segments found');
           if (chatMessages) {
             var errEl = document.createElement('div');
-            errEl.className = 'message message-assistant';
+            errEl.className = 'message message-assistant message-logging';
             errEl.textContent = 'Timeline: No segments with "visit" data found.';
             chatMessages.appendChild(errEl);
             chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -1241,8 +1241,8 @@
               console.log('[timeline] historicData:', historicData);
               if (chatMessages) {
                 var okEl = document.createElement('div');
-                okEl.className = 'message message-assistant';
-                okEl.textContent = 'Timeline loaded. Check console for historicData and commonPatterns.';
+                okEl.className = 'message message-assistant message-logging';
+                okEl.textContent = 'Timeline loaded. Identified common patterns based on days and time of the day.';
                 chatMessages.appendChild(okEl);
                 chatMessages.scrollTop = chatMessages.scrollHeight;
               }
@@ -1254,7 +1254,7 @@
               console.log('[timeline] historicData:', historicData);
               if (chatMessages) {
                 var errEl = document.createElement('div');
-                errEl.className = 'message message-assistant';
+                errEl.className = 'message message-assistant message-logging';
                 errEl.textContent = 'Timeline loaded; pattern detection failed. Check console.';
                 chatMessages.appendChild(errEl);
                 chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -1266,7 +1266,7 @@
         console.error('[timeline] File read error');
         if (chatMessages) {
           var errEl = document.createElement('div');
-          errEl.className = 'message message-assistant';
+          errEl.className = 'message message-assistant message-logging';
           errEl.textContent = 'Timeline: Could not read file.';
           chatMessages.appendChild(errEl);
           chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -1434,13 +1434,13 @@
         showKeyError('Maps script did not load. In API key restrictions, allow both "Maps JavaScript API" and "Places API" for this key.');
       }
     }, 8000);
-    window.__aiNavigatorMapsReady = function () {
+    window.__powerNavigatorMapsReady = function () {
       clearTimeout(loadTimeout);
-      window.__aiNavigatorMapsReady = null;
+      window.__powerNavigatorMapsReady = null;
       initAutocomplete();
     };
     var script = document.createElement('script');
-    script.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(key) + '&libraries=places&callback=__aiNavigatorMapsReady';
+    script.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(key) + '&libraries=places&callback=__powerNavigatorMapsReady';
     script.async = true;
     script.defer = true;
     script.onerror = function () {

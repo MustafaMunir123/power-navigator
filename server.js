@@ -177,6 +177,8 @@ function filterCommonPatterns(parsed) {
   return result;
 }
 
+const DETECT_COMMON_PATTERNS_MAX_RETRIES = 3; // 3 retries after first attempt = 4 total attempts
+
 async function detectCommonPatterns(simplifiedMap) {
   if (!simplifiedMap || typeof simplifiedMap !== 'object') return {};
   const openai = new OpenAI({
@@ -184,25 +186,37 @@ async function detectCommonPatterns(simplifiedMap) {
     baseURL: 'https://api.nova.amazon.com/v1/',
   });
   const prompt = buildCommonPatternsPrompt(simplifiedMap);
-  const response = await openai.chat.completions.create({
-    model: 'nova-2-lite-v1',
-    messages: [{ role: 'user', content: prompt }],
-  });
-  const content = (response.choices?.[0]?.message?.content || '').trim();
-  const jsonMatch = content.match(/\{[\s\S]*\}/);
-  if (jsonMatch) {
+  let lastContent = '';
+  for (let attempt = 1; attempt <= DETECT_COMMON_PATTERNS_MAX_RETRIES + 1; attempt++) {
     try {
-      const parsed = JSON.parse(jsonMatch[0]);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        const raw = {};
-        Object.keys(parsed).forEach((k) => {
-          if (Array.isArray(parsed[k])) raw[k] = parsed[k].filter((s) => typeof s === 'string');
-          else if (typeof parsed[k] === 'string') raw[k] = [parsed[k]];
-        });
-        return filterCommonPatterns(raw);
+      const response = await openai.chat.completions.create({
+        model: 'nova-2-lite-v1',
+        messages: [{ role: 'user', content: prompt }],
+      });
+      let content = (response.choices?.[0]?.message?.content || '').trim();
+      lastContent = content;
+      const codeBlock = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (codeBlock) content = codeBlock[1].trim();
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          const raw = {};
+          Object.keys(parsed).forEach((k) => {
+            if (Array.isArray(parsed[k])) raw[k] = parsed[k].filter((s) => typeof s === 'string');
+            else if (typeof parsed[k] === 'string') raw[k] = [parsed[k]];
+          });
+          return filterCommonPatterns(raw);
+        }
       }
-    } catch (_) {
-      console.log('[detect-common-patterns] JSON parse failed');
+    } catch (e) {
+      console.log('[detect-common-patterns] attempt', attempt, 'failed:', e.message);
+      if (attempt === DETECT_COMMON_PATTERNS_MAX_RETRIES + 1 && lastContent) {
+        console.log('[detect-common-patterns] raw content:', lastContent.slice(0, 500));
+      }
+    }
+    if (attempt < DETECT_COMMON_PATTERNS_MAX_RETRIES + 1) {
+      console.log('[detect-common-patterns] retry ' + attempt + '/' + (DETECT_COMMON_PATTERNS_MAX_RETRIES + 1) + ' failed, retrying…');
     }
   }
   return {};
@@ -222,18 +236,27 @@ app.post('/api/detect-common-patterns', async (req, res) => {
   }
 });
 
+function placeNameOnly(fullAddress) {
+  if (typeof fullAddress !== 'string' || !fullAddress.trim()) return fullAddress || '';
+  const first = fullAddress.split(',')[0].trim();
+  return first || fullAddress.trim();
+}
+
 function buildMatchPatternsPrompt(source, destination, currentDay, partOfDay, patternsMap) {
+  const sourceName = placeNameOnly(source);
+  const destName = placeNameOnly(destination);
+  console.log('[match-patterns] place names only:', { sourceName, destName });
   const list = Object.keys(patternsMap || {})
     .sort((a, b) => Number(a) - Number(b))
     .map((i) => `${i}: ${patternsMap[i]}`)
     .join('\n');
-  return `User is traveling from ${source} to ${destination} on a ${currentDay} ${partOfDay}.
-(Consider: source as "${source}", destination as "${destination}", current day as "${currentDay}", part of day as "${partOfDay}".)
+  return `User is traveling from ${sourceName} to ${destName} on a ${currentDay} ${partOfDay}.
+(Consider: source as "${sourceName}", destination as "${destName}", current day as "${currentDay}", part of day as "${partOfDay}".)
 
 Below are some common patterns (index: pattern text):
 ${list || '(none)'}
 
-If you see any common pattern that meaningfully matches this trip, return its index. A pattern matches if either the source (${source}) OR the destination (${destination}) matches or relates to the pattern, along with part of day (${partOfDay})—either source or destination is enough.
+If you see any common pattern that meaningfully matches this trip, return its index. A pattern matches if either the source (${sourceName}) OR the destination (${destName}) matches or relates to the pattern, along with part of day (${partOfDay})—either source or destination is enough.
 
 Return format:
 {"patterns": [0, 2]}
@@ -253,6 +276,7 @@ async function matchPatterns(source, destination, currentDay, partOfDay, pattern
     baseURL: 'https://api.nova.amazon.com/v1/',
   });
   const prompt = buildMatchPatternsPrompt(source, destination, currentDay, partOfDay, patternsMap);
+  console.log('[match-patterns] filled prompt:\n', prompt);
   const response = await openai.chat.completions.create({
     model: 'nova-2-lite-v1',
     messages: [{ role: 'user', content: prompt }],
@@ -304,6 +328,7 @@ async function extractPlacesFromPattern(patternText) {
     baseURL: 'https://api.nova.amazon.com/v1/',
   });
   const prompt = buildExtractPlacesFromPatternPrompt(patternText);
+  console.log('[extract-places-from-pattern] filled prompt:\n', prompt);
   const response = await openai.chat.completions.create({
     model: 'nova-2-lite-v1',
     messages: [{ role: 'user', content: prompt }],
@@ -479,7 +504,7 @@ app.get('/', (req, res) => {
 app.use(express.static(__dirname));
 
 app.listen(PORT, () => {
-  console.log(`AI Navigator running at http://localhost:${PORT}`);
+  console.log(`Power Navigator running at http://localhost:${PORT}`);
   if (!MAPS_KEY) console.warn('MAPS_API_KEY not set in .env — Maps autocomplete will be disabled.');
   if (!NOVA_KEY) console.warn('NOVA_API_KEY not set in .env — stop detection will be disabled.');
 });

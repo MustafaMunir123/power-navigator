@@ -1,0 +1,80 @@
+# Power Navigator one-click deploy: Lightsail instance + Static IP
+# Launch via: CloudFormation → Create stack → Upload template (or use S3/raw URL)
+# Parameters: MapsApiKey, NovaApiKey, and optionally RepoUrl
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Power Navigator on Lightsail - one instance, Node.js app, static IP
+
+Parameters:
+  MapsApiKey:
+    Type: String
+    NoEcho: true
+    Description: Maps API key (for autocomplete, directions, and place search)
+  NovaApiKey:
+    Type: String
+    NoEcho: true
+    Description: Amazon Nova API key
+  RepoUrl:
+    Type: String
+    Default: 'https://github.com/your-username/power-navigator.git'
+    Description: Git clone URL (use your fork or the main repo)
+  InstanceName:
+    Type: String
+    Default: power-navigator
+    Description: Lightsail instance name
+
+Resources:
+  AppInstance:
+    Type: AWS::Lightsail::Instance
+    Properties:
+      InstanceName: !Ref InstanceName
+      BlueprintId: ubuntu_22_04
+      BundleId: micro_2_0
+      Networking:
+        Ports:
+          - FromPort: 22
+            ToPort: 22
+            Protocol: tcp
+            AccessDirection: inbound
+            AccessFrom: "Anywhere (0.0.0.0/0)"
+            AccessType: Public
+          - FromPort: 3000
+            ToPort: 3000
+            Protocol: tcp
+            AccessDirection: inbound
+            AccessFrom: "Anywhere (0.0.0.0/0)"
+            AccessType: Public
+      UserData: !Sub |
+        #!/bin/bash
+        set -e
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update -qq && apt-get install -y -qq git curl
+        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+        apt-get install -y -qq nodejs
+        npm install -g pm2
+        cd /opt
+        git clone "${RepoUrl}" app 2>/dev/null || (cd app && git pull)
+        cd app
+        printf 'MAPS_API_KEY=%s\nNOVA_API_KEY=%s\nPORT=3000\n' '${MapsApiKey}' '${NovaApiKey}' > .env
+        npm install --production
+        pm2 start server.js --name power-navigator
+        pm2 save
+        pm2 startup systemd -u root --hp /root || true
+
+  StaticIp:
+    Type: AWS::Lightsail::StaticIp
+    DependsOn: AppInstance
+    Properties:
+      StaticIpName: !Sub ${InstanceName}-ip
+      AttachedTo: !Ref AppInstance
+
+Outputs:
+  AppUrl:
+    Description: Open this URL in your browser (use after instance is running, ~3–5 min)
+    Value: !Sub ['http://${Ip}:3000', { Ip: !GetAtt StaticIp.IpAddress }]
+  StaticIp:
+    Description: Static IP (same as AppUrl host)
+    Value: !GetAtt StaticIp.IpAddress
+  InstanceName:
+    Description: Lightsail instance name (for SSH / console)
+    Value: !Ref AppInstance
