@@ -22,7 +22,7 @@ Single-page app: route fields (From/To) with Places autocomplete + chat.
 You can deploy Power Navigator to a single **Lightsail** instance with **one form + click** using CloudFormation. No CLI required in the browser flow.
 
 ```
-https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?templateURL=https://raw.githubusercontent.com/MustafaMunir123/ai-navigator/main/template-lightsail.yaml&stackName=power-navigator
+https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?templateURL=https://raw.githubusercontent.com/MustafaMunir123/power-navigator/main/template-lightsail.yaml&stackName=power-navigator
 ```
 
 Or **manually**:
@@ -32,7 +32,7 @@ Or **manually**:
 3. **Parameters**:
    - **MapsApiKey** – your maps API key (autocomplete, directions, place search)
    - **NovaApiKey** – your Amazon Nova API key
-   - **RepoUrl** – Git clone URL (default: `https://github.com/MustafaMunir123/ai-navigator.git`).
+   - **RepoUrl** – Git clone URL (default: `https://github.com/MustafaMunir123/power-navigator.git`).
    - **InstanceName** – optional (default: `power-navigator`).
 4. **Create stack**. Wait 5–10 minutes for the instance to start and the launch script to install Node, clone the repo, and start the app.
 5. **Outputs** → copy **AppUrl** (e.g. `http://<static-ip>:3000`) and open it in your browser.
