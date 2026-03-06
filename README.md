@@ -2,24 +2,14 @@
 
 Single-page app: route fields (From/To) with Places autocomplete + chat.
 
-## Run
+## Run Locally
 
 ```bash
+cd path/to/power-navigator
 npm install
 npm start
 ```
-
-Open http://localhost:3000
-
-**To see server logs (Nova API, errors, etc.) in the terminal:** run the app from a terminal so stdout stays visible:
-
-```bash
-cd "/path/to/Power Navigator"
-npm start
 ```
-
-Leave this terminal open. All `console.log` and `console.error` from `server.js` (e.g. Nova API responses, detect-stops errors) will print here.  
-Directions are requested from the browser; that response is logged in **Developer Tools → Console** (F12).
 
 ## Setup
 
@@ -30,19 +20,14 @@ Directions are requested from the browser; that response is logged in **Develope
    ```
    (Use a maps provider API key that supports autocomplete, directions, and place search. Restrict the key by referrer in your provider’s console if needed.)
 
-## Testing and logs
-
 - **Directions response** (when you click Send with From/To filled): logged in the **browser** only. Open DevTools (F12) → **Console** and look for `[Maps Directions] status:` and full response.
 - **Nova API response** (when you send a chat message): logged in the **terminal** where the server is running. Look for `[Nova API] full response:` and `[Nova API] message content:`.
 - To see those server logs, start the app from a terminal (`npm start`) and keep that window open; don’t run it in the background or from an IDE run config that hides the output.
 
 ---
 
-## Deploy to AWS Lightsail (one-click)
-
+## One-click Deploy
 You can deploy Power Navigator to a single **Lightsail** instance with **one form + click** using CloudFormation. No CLI required in the browser flow.
-
-### One-click Deploy
 
 ```
 https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?templateURL=https://raw.githubusercontent.com/MustafaMunir123/ai-navigator/main/template-lightsail.yaml&stackName=power-navigator
@@ -66,6 +51,5 @@ Or **manually**:
 - **Static IP** attached to the instance
 - **Launch script** (User Data): installs Node 20, clones your repo, sets `.env`, runs `pm2 start server.js`
 
-### If your region doesn’t have `ubuntu_22_04`
 
-Edit `template-lightsail.yaml` and set `BlueprintId` to `ubuntu_20_04`, then upload that file as the template.
+Note: `template-lightsail.yaml` and set `BlueprintId` to `ubuntu_20_04`, then upload that file as the template.
