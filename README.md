@@ -18,7 +18,7 @@ Single-page app: route fields (From/To) with Places autocomplete + chat.
 
 ---
 
-## Deploy to AWS
+## One-Click Deploy to AWS
 
 **Lightsail** (if available on your account):
 
