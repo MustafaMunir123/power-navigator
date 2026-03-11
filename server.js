@@ -4,6 +4,7 @@ require('dotenv').config();
 if (process.env.ALLOW_INSECURE_TLS === '1') {
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 }
+const http = require('http');
 const OpenAI = require('openai').default;
 const express = require('express');
 const fs = require('fs');
@@ -561,7 +562,8 @@ app.get('/', (req, res) => {
 // Serve static files (css, js, etc.)
 app.use(express.static(__dirname));
 
-app.listen(PORT, () => {
+const server = http.createServer(app);
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`Power Navigator running at http://localhost:${PORT}`);
   if (!MAPS_KEY) console.warn('MAPS_API_KEY not set in .env — Maps autocomplete will be disabled.');
   if (!NOVA_KEY) console.warn('NOVA_API_KEY not set in .env — stop detection will be disabled.');
