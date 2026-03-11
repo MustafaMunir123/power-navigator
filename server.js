@@ -13,8 +13,66 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const MAPS_KEY = (process.env.MAPS_API_KEY || '').trim();
 const NOVA_KEY = (process.env.NOVA_API_KEY || '').trim();
+const APP_ACCESS_KEY = (process.env.APP_ACCESS_KEY || '').trim();
+
+function parseCookies(cookieHeader) {
+  const out = {};
+  if (!cookieHeader) return out;
+  cookieHeader.split(';').forEach((s) => {
+    const eq = s.trim().indexOf('=');
+    if (eq > 0) out[s.trim().slice(0, eq)] = s.trim().slice(eq + 1).trim();
+  });
+  return out;
+}
+
+function getAccessKey(req) {
+  return req.headers['x-access-key'] ||
+    (req.headers['authorization'] && req.headers['authorization'].startsWith('Bearer ')
+      ? req.headers['authorization'].slice(7).trim()
+      : null) ||
+    parseCookies(req.headers.cookie).app_access ||
+    (req.query && req.query.key);
+}
 
 app.use(express.json());
+
+if (APP_ACCESS_KEY) {
+  app.use((req, res, next) => {
+    if (req.path === '/login' || (req.path === '/api/access' && req.method === 'POST')) return next();
+    const key = getAccessKey(req);
+    if (key === APP_ACCESS_KEY) {
+      if (req.query && req.query.key && req.path === '/') {
+        res.cookie('app_access', APP_ACCESS_KEY, { httpOnly: true, path: '/', maxAge: 7 * 24 * 60 * 60 * 1000 });
+        return res.redirect('/');
+      }
+      return next();
+    }
+    if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Access key required' });
+    if (req.path === '/' || req.path === '') return res.redirect('/login');
+    res.status(401).send('Access key required');
+  });
+}
+
+app.get('/login', (req, res) => {
+  res.type('html').send(`
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Power Navigator – Access</title></head>
+<body style="font-family:system-ui;max-width:360px;margin:4rem auto;padding:1rem;">
+  <h1 style="font-size:1.25rem;">Power Navigator</h1>
+  <p style="color:#666;">Enter the access key to continue.</p>
+  <form method="post" action="/api/access" style="display:flex;flex-direction:column;gap:0.75rem;">
+    <input type="password" name="key" placeholder="Access key" required autofocus style="padding:0.5rem;font-size:1rem;">
+    <button type="submit" style="padding:0.5rem 1rem;">Continue</button>
+  </form>
+</body></html>`);
+});
+
+app.post('/api/access', express.urlencoded({ extended: true }), (req, res) => {
+  const key = (req.body && req.body.key) ? req.body.key.trim() : '';
+  if (key !== APP_ACCESS_KEY) return res.status(401).json({ error: 'Invalid key' });
+  res.cookie('app_access', APP_ACCESS_KEY, { httpOnly: true, path: '/', maxAge: 7 * 24 * 60 * 60 * 1000 });
+  res.redirect('/');
+});
 
 function buildPrompt(source, destination, userQuery) {
   return `source: ${source}

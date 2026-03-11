@@ -21,6 +21,11 @@ Parameters:
     Type: String
     Default: power-navigator
     Description: Lightsail instance name
+  AccessKey:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: '(Optional) Access key to use the app. Share only with judges. Leave blank to allow open access.'
 
 Resources:
   AppInstance:
@@ -55,6 +60,7 @@ Resources:
         git clone "${RepoUrl}" app 2>/dev/null || (cd app && git pull)
         cd app
         printf 'MAPS_API_KEY=%s\nNOVA_API_KEY=%s\nPORT=3000\n' '${MapsApiKey}' '${NovaApiKey}' > .env
+        [ -n '${AccessKey}' ] && printf 'APP_ACCESS_KEY=%s\n' '${AccessKey}' >> .env
         npm install --production
         pm2 start server.js --name power-navigator
         pm2 save
